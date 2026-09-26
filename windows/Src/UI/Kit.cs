@@ -382,6 +382,7 @@ namespace AppleLabs
                     GroupName = group,
                     IsChecked = EqualityComparer<T>.Default.Equals(value, selected),
                     Style = (Style)Application.Current.FindResource("PageTab"),
+                    Tag = value,
                 };
                 var v = value;
                 r.Checked += (s, e) => { if (r.IsLoaded) changed(v); };
@@ -397,6 +398,19 @@ namespace AppleLabs
                 BorderThickness = new Thickness(1),
                 VerticalAlignment = VerticalAlignment.Bottom,
             };
+        }
+
+        /// <summary>Keeps a tab bar's highlight on <paramref name="current"/> when the tab changes from elsewhere.</summary>
+        public static void FollowTab(Border tabs, INotifyPropertyChanged model, Func<object> current)
+        {
+            PropertyChangedEventHandler handler = (s, e) =>
+            {
+                if (e.PropertyName != "Tab") return;
+                foreach (var r in ((Panel)tabs.Child).Children.OfType<RadioButton>())
+                    if (Equals(r.Tag, current()) && r.IsChecked != true) r.IsChecked = true;
+            };
+            tabs.Loaded += (s, e) => model.PropertyChanged += handler;
+            tabs.Unloaded += (s, e) => model.PropertyChanged -= handler;
         }
 
         public static UIElement PageHeader(string title, string subtitle, UIElement trailing = null)

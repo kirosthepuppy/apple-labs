@@ -26,6 +26,7 @@ namespace AppleLabs
                 ("Sound", "\uE767", "sound"),
                 ("Files", "\uE8B7", "files"),
             }, m.Settings.StyleTab, t => m.SetTab("style", t));
+            K.FollowTab(tabs, m, () => m.Settings.StyleTab);
             Children.Add(K.PageHeader("Style", "Make Roblox look and sound your way. Mods come back after every update.", tabs));
             Children.Add(Tile.RestartHint(m));
             Children.Add(new Live(m, new[] { nameof(LauncherModel.ErrorMessage) },

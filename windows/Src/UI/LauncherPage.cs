@@ -26,6 +26,7 @@ namespace AppleLabs
                 ("General", "\uE8AB", "general"),
                 ("Help", "\uE897", "help"),
             }, m.Settings.LauncherTab, t => m.SetTab("launcher", t));
+            K.FollowTab(tabs, m, () => m.Settings.LauncherTab);
             Children.Add(K.PageHeader("Launcher", "How this app looks and behaves.", tabs));
             Children.Add(new Live(m, new[] { nameof(LauncherModel.ErrorMessage) },
                 () => m.ErrorMessage == null ? null : K.ErrorBanner(m.ErrorMessage, () => m.ErrorMessage = null)));

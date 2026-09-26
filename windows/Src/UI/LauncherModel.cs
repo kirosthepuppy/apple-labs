@@ -504,10 +504,11 @@ namespace AppleLabs
         {
             if (tab != null)
             {
+                var before = Settings.GraphicsTab + Settings.StyleTab + Settings.LauncherTab;
                 if (page == "graphics") Settings.GraphicsTab = tab;
                 else if (page == "style") Settings.StyleTab = tab;
                 else if (page == "launcher") Settings.LauncherTab = tab;
-                Raise("Tab");
+                if (before != Settings.GraphicsTab + Settings.StyleTab + Settings.LauncherTab) Raise("Tab");
             }
             if (page != Settings.Page)
             {

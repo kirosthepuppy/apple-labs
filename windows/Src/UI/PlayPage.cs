@@ -357,7 +357,11 @@ namespace AppleLabs
             if (meta.Children.Count > 0) stack.Children.Add(meta);
 
             var actions = Actions(game);
-            if (actions is FrameworkElement fe) fe.Margin = new Thickness(0, 8, 0, 0);
+            if (actions is FrameworkElement fe)
+            {
+                fe.Margin = new Thickness(0, 8, 0, 0);
+                fe.HorizontalAlignment = HorizontalAlignment.Left;
+            }
             stack.Children.Add(actions);
             return stack;
         }

@@ -23,6 +23,7 @@ namespace AppleLabs
                 ("Engine", "\uE9E9", "engine"),
                 ("FastFlags", "\uE7C1", "flags"),
             }, m.Settings.GraphicsTab, t => m.SetTab("graphics", t));
+            K.FollowTab(tabs, m, () => m.Settings.GraphicsTab);
             Children.Add(K.PageHeader("Graphics", "Tune how Roblox runs and looks. Applied every time you play.", tabs));
             Children.Add(Tile.RestartHint(m));
             Children.Add(new Live(m, new[] { nameof(LauncherModel.FlagsError) }, () => m.FlagsError == null ? null : K.ErrorBanner(m.FlagsError)));
