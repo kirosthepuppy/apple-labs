@@ -413,7 +413,8 @@ on run
 end run
 EOF
   rm -rf "$HANDLER_APP"
-  osacompile -o "$HANDLER_APP" "$script" || die "osacompile failed"
+  local out
+  out="$(osacompile -o "$HANDLER_APP" "$script" 2>&1)" || die "osacompile failed: $out"
 
   local plist="$HANDLER_APP/Contents/Info.plist"
   /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $HANDLER_BUNDLE_ID" "$plist" 2>/dev/null \
