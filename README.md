@@ -1,4 +1,4 @@
-# macOS Roblox Bootstrapper
+# Apple Labs
 
 A bootstrapper and launcher for Roblox on macOS, in the spirit of Bloxstrap
 and Fishstrap. The core is a single, dependency-free bash script that uses only
