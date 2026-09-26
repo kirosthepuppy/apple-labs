@@ -158,10 +158,10 @@ namespace AppleLabs
         public void RefreshRunning()
         {
             var now = Roblox.IsRunning;
+            NeedsRestart = now && Roblox.RunningHasOldSettings();
             if (now == running) return;
             var exited = running && !now;
             running = now;
-            if (!now) NeedsRestart = false;
             Raise(nameof(RobloxRunning), nameof(State));
             if (exited)
             {
@@ -232,14 +232,23 @@ namespace AppleLabs
         /// <summary>Updates if needed, applies flags and mods, then starts Roblox (joining <paramref name="link"/> if given).</summary>
         public async void Launch(string link = null, bool quitAfter = false)
         {
-            if (running && link == null)
+            RefreshRunning();
+            if (running && link == null && !needsRestart)
             {
                 Roblox.BringToFront();
                 return;
             }
+            // A running Roblox keeps the settings it started with; restart it so new ones apply.
+            var restart = running && needsRestart;
             var channel = Settings.Channel;
             var ok = await RunTask(link == null ? "Starting Roblox" : "Joining game", async (token, report) =>
             {
+                if (restart)
+                {
+                    report("Restarting Roblox to apply your settings", null);
+                    await Roblox.Quit().ConfigureAwait(false);
+                }
+                var alreadyOpen = Roblox.IsRunning;
                 VersionInfo newest = null;
                 try { newest = await Roblox.FetchLatest(channel, token).ConfigureAwait(false); }
                 catch (Exception e) when (!(e is OperationCanceledException) && Roblox.Installed != null)
@@ -247,12 +256,12 @@ namespace AppleLabs
                     // Never block a launch on a network hiccup if Roblox is already installed.
                     Log.Warn("could not check for updates, launching what's installed: " + e.Message);
                 }
-                if (newest != null)
+                if (newest != null && (Roblox.Installed?.Guid != newest.Guid || !alreadyOpen))
                 {
                     await Roblox.Install(newest, report, token).ConfigureAwait(false);
                     OnUi(() => { latest = newest; Raise(nameof(Latest)); });
                 }
-                else
+                else if (!alreadyOpen)
                 {
                     Roblox.ApplyCustomizations();
                 }
@@ -342,7 +351,7 @@ namespace AppleLabs
                 FlagsError = null;
                 var dir = Roblox.InstalledDir;
                 if (dir != null) Roblox.ApplyFlags(dir);
-                if (running) NeedsRestart = true;
+                RefreshRunning();
             }
             catch (Exception e)
             {
@@ -413,8 +422,8 @@ namespace AppleLabs
                     if (dir != null) Roblox.ApplyMods(dir);
                 }
                 catch (Exception e) { OnUi(() => ErrorMessage = "Could not apply mods: " + e.Message); }
+                OnUi(RefreshRunning);
             });
-            if (running) NeedsRestart = true;
         }
 
         void ModAction(Action action)

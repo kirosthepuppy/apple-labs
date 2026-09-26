@@ -152,6 +152,7 @@ final class LauncherModel: ObservableObject {
     private var modsCache: (key: String, snapshot: ModsSnapshot)?
     private var modsReadGeneration = 0
     private var observers: [NSObjectProtocol] = []
+    private var runningPoll: Timer?
 
     let supportURL: URL = {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -213,6 +214,10 @@ final class LauncherModel: ObservableObject {
                 self?.refreshRunning()
             })
         }
+        // Roblox can start itself in the menu bar at login without those
+        // notifications reaching us, so also look every few seconds.
+        runningPoll = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in self?.refreshRunning() }
+        runningPoll?.tolerance = 1
     }
 
     // MARK: - Status
@@ -228,14 +233,38 @@ final class LauncherModel: ObservableObject {
     }
 
     func refreshRunning() {
-        let running = NSWorkspace.shared.runningApplications.contains {
+        let apps = NSWorkspace.shared.runningApplications.filter {
             $0.bundleIdentifier == Self.robloxBundleID && !$0.isTerminated
         }
+        let running = !apps.isEmpty
         if robloxRunning && !running {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.onRobloxExit?() }
         }
-        robloxRunning = running
-        if !running { needsRestart = false }
+        // Only publish changes: this runs every few seconds.
+        if robloxRunning != running { robloxRunning = running }
+        let stale = running && robloxHasOldSettings(apps)
+        if needsRestart != stale { needsRestart = stale }
+    }
+
+    /// Roblox reads FastFlags and mods only when it starts. It's out of date
+    /// when they were written after the oldest running copy started, e.g. a
+    /// Roblox sitting in the menu bar since login.
+    private func robloxHasOldSettings(_ apps: [NSRunningApplication]) -> Bool {
+        guard let started = apps.compactMap({ $0.launchDate ?? Self.processStart($0.processIdentifier) }).min() else { return false }
+        let written = [
+            robloxAppURL.appendingPathComponent("Contents/MacOS/ClientSettings/ClientAppSettings.json"),
+            supportURL.appendingPathComponent("mods-applied"),
+        ].compactMap { try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate }
+        return written.contains { $0 > started }
+    }
+
+    private static func processStart(_ pid: pid_t) -> Date? {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return nil }
+        let start = info.kp_proc.p_starttime
+        return Date(timeIntervalSince1970: TimeInterval(start.tv_sec) + TimeInterval(start.tv_usec) / 1_000_000)
     }
 
     // MARK: - Background image
@@ -347,6 +376,17 @@ final class LauncherModel: ObservableObject {
     /// Update if needed, apply flags and mods, then start Roblox (optionally
     /// joining the game in `url`).
     func launch(url: String? = nil, quitAfter: Bool = false) {
+        refreshRunning()
+        if robloxRunning && needsRestart && !busy {
+            // A running Roblox keeps the settings it started with; restart it so
+            // the new FastFlags and mods apply.
+            quitRoblox { [weak self] in self?.startLaunch(url: url, quitAfter: quitAfter) }
+            return
+        }
+        startLaunch(url: url, quitAfter: quitAfter)
+    }
+
+    private func startLaunch(url: String?, quitAfter: Bool) {
         var args = ["launch"]
         if let url { args.append(url) }
         runTask(args, title: url == nil ? "Starting Roblox" : "Joining game") { [weak self] ok in
@@ -381,12 +421,17 @@ final class LauncherModel: ObservableObject {
         guard !apps.isEmpty else { done(); return }
         apps.forEach { $0.terminate() }
         busy = true
-        stage = "Closing Roblox"
+        stage = needsRestart ? "Restarting Roblox to apply your settings" : "Closing Roblox"
         waitForRobloxToExit(attempts: 50) { [weak self] in
             guard let self else { return }
-            self.busy = false
-            self.refreshRunning()
-            done()
+            // Roblox in the menu bar sometimes ignores a polite quit.
+            let stuck = NSWorkspace.shared.runningApplications.filter { $0.bundleIdentifier == Self.robloxBundleID && !$0.isTerminated }
+            stuck.forEach { $0.forceTerminate() }
+            self.waitForRobloxToExit(attempts: stuck.isEmpty ? 0 : 15) {
+                self.busy = false
+                self.refreshRunning()
+                done()
+            }
         }
     }
 
@@ -590,7 +635,6 @@ final class LauncherModel: ObservableObject {
 
     func clearMods() {
         applyQuietly(["mods", "clear"]) { [weak self] in self?.modsRevision += 1 }
-        needsRestart = robloxRunning
     }
 
     func applyMods() { modsChanged() }
@@ -638,9 +682,8 @@ final class LauncherModel: ObservableObject {
             guard let self else { return }
             if !result.succeeded {
                 self.errorMessage = result.errorMessage
-            } else if self.robloxRunning {
-                self.needsRestart = true
             }
+            self.refreshRunning()
             done?()
         })
     }

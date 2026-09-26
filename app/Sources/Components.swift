@@ -90,8 +90,9 @@ struct RestartHint: View {
                 Image(systemName: "arrow.clockwise.circle.fill")
                     .font(.system(size: 22))
                     .foregroundStyle(model.theme.accent)
-                Text("Roblox is open. Restart it to use your changes.")
+                Text("Roblox is still running with your old settings (it can stay open in the menu bar). Restart it to use your changes.")
                     .font(.ui(13.5, .semibold))
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer()
                 Button("Restart Roblox") { model.restartRoblox() }
                     .buttonStyle(.chunky(model.theme.accent, size: .small))

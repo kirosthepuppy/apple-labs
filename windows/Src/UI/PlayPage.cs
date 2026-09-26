@@ -18,7 +18,7 @@ namespace AppleLabs
             Spacing = 30;
             RecentGame Hero() => m.ShowRecentGames ? m.RecentGames.FirstOrDefault() : null;
 
-            Children.Add(K.AppearIn(new Live(m, new[] { nameof(LauncherModel.State), nameof(LauncherModel.Stage), nameof(LauncherModel.CurrentName), nameof(LauncherModel.CurrentAvatar), nameof(LauncherModel.ShortVersion) },
+            Children.Add(K.AppearIn(new Live(m, new[] { nameof(LauncherModel.State), nameof(LauncherModel.Stage), nameof(LauncherModel.CurrentName), nameof(LauncherModel.CurrentAvatar), nameof(LauncherModel.ShortVersion), nameof(LauncherModel.NeedsRestart) },
                 () => Greeting(m)), 0));
             Children.Add(K.AppearIn(new StageCard(m, Hero), 1));
             Children.Add(new Live(m, new[] { nameof(LauncherModel.ErrorMessage) },
@@ -36,7 +36,9 @@ namespace AppleLabs
             switch (m.State)
             {
                 case LauncherState.Working: line = string.IsNullOrEmpty(m.Stage) ? "Getting Roblox ready…" : m.Stage; break;
-                case LauncherState.Playing: line = "Roblox is running. Have fun out there!"; break;
+                case LauncherState.Playing:
+                    line = m.NeedsRestart ? "Roblox is running with your old settings. Restart it to use your changes." : "Roblox is running. Have fun out there!";
+                    break;
                 case LauncherState.NotInstalled: line = "Roblox isn't installed yet. It downloads when you press Play."; break;
                 case LauncherState.UpdateReady: line = "A Roblox update is ready and installs when you press Play."; break;
                 case LauncherState.Failed: line = "Something went wrong. The details are below."; break;
@@ -220,7 +222,7 @@ namespace AppleLabs
                     new GradientStop(Color.FromArgb(128, 0, 0, 0), 1),
                 }, 90),
             });
-            var content = new Live(m, watched.Concat(new[] { nameof(LauncherModel.State), nameof(LauncherModel.Busy), nameof(LauncherModel.RobloxRunning) }), Content);
+            var content = new Live(m, watched.Concat(new[] { nameof(LauncherModel.State), nameof(LauncherModel.Busy), nameof(LauncherModel.RobloxRunning), nameof(LauncherModel.NeedsRestart) }), Content);
             content.Margin = new Thickness(34, 30, 34, 30);
             content.VerticalAlignment = VerticalAlignment.Bottom;
             Children.Add(content);
@@ -385,6 +387,13 @@ namespace AppleLabs
         UIElement Actions(RecentGame game)
         {
             if (m.Busy) return K.AppearIn(new ProgressCapsule(m), 0);
+            if (m.RobloxRunning && m.NeedsRestart)
+            {
+                // Roblox only reads settings when it starts.
+                var apply = K.Button(K.Label("\uE72C", "Restart to Apply", 20), m.RestartRoblox, K.Size.Large, tip: "Close and reopen Roblox with your latest settings");
+                apply.IsDefault = true;
+                return apply;
+            }
             if (m.RobloxRunning)
             {
                 return K.H(14,

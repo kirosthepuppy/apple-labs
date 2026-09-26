@@ -409,7 +409,9 @@ namespace AppleLabs
         {
             var flags = FastFlags.Load();
             var target = Path.Combine(dir, "ClientSettings", "ClientAppSettings.json");
-            Paths.WriteAtomic(target, Json.Write(flags) + "\n");
+            var text = Json.Write(flags) + "\n";
+            // Unchanged settings keep their date, which is how we tell whether a running Roblox is out of date.
+            if (Paths.ReadText(target) != text) Paths.WriteAtomic(target, text);
         }
 
         /// <summary>
@@ -424,6 +426,7 @@ namespace AppleLabs
             Directory.CreateDirectory(Paths.ModBackups);
 
             // What should end up in the Roblox folder: relative path → source file or text.
+            // Each writer returns whether it changed the file.
             var wanted = new SortedDictionary<string, Func<string, bool>>(StringComparer.OrdinalIgnoreCase);
             foreach (var file in Directory.EnumerateFiles(Paths.Mods, "*", SearchOption.AllDirectories))
             {
@@ -432,7 +435,12 @@ namespace AppleLabs
                 var rel = Paths.Relative(Paths.Mods, file);
                 if (rel == null) continue;
                 var source = file;
-                wanted[rel] = target => { File.Copy(source, target, true); return true; };
+                wanted[rel] = target =>
+                {
+                    if (SameContent(source, target)) return false;
+                    File.Copy(source, target, true);
+                    return true;
+                };
             }
 
             var font = FontPaths.Select(p => p.Substring("content/fonts/".Length)).FirstOrDefault(p => File.Exists(Path.Combine(Paths.Mods, "content", "fonts", p)));
@@ -449,7 +457,12 @@ namespace AppleLabs
                         var original = File.Exists(backup) ? backup : fam;
                         var text = Regex.Replace(File.ReadAllText(original), "(\"assetId\"\\s*:\\s*)\"[^\"]*\"",
                             "$1\"rbxasset://fonts/" + font + "\"");
-                        wanted[rel] = target => { File.WriteAllText(target, text, new UTF8Encoding(false)); return true; };
+                        wanted[rel] = target =>
+                        {
+                            if (File.Exists(target) && File.ReadAllText(target) == text) return false;
+                            File.WriteAllText(target, text, new UTF8Encoding(false));
+                            return true;
+                        };
                     }
                 }
             }
@@ -458,9 +471,11 @@ namespace AppleLabs
                 ? new HashSet<string>(File.ReadAllLines(Paths.ModManifest).Where(l => l.Length > 0), StringComparer.OrdinalIgnoreCase)
                 : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+            var changed = false;
             // Put back files whose mod was removed.
             foreach (var rel in previous.Where(r => !wanted.ContainsKey(r)).ToList())
             {
+                changed = true;
                 var live = Paths.Inside(dir, rel);
                 var backup = Paths.Inside(Paths.ModBackups, rel);
                 try
@@ -489,13 +504,45 @@ namespace AppleLabs
                         File.Copy(live, backup, true);
                     }
                     Directory.CreateDirectory(Path.GetDirectoryName(live));
-                    pair.Value(live);
+                    changed |= pair.Value(live);
                     applied.Add(pair.Key);
                 }
                 catch (Exception e) { Log.Warn($"could not apply mod {pair.Key}: {e.Message}"); }
             }
             Directory.CreateDirectory(Paths.ModState);
-            File.WriteAllLines(Paths.ModManifest, applied);
+            // The manifest's date says when Roblox's files last changed.
+            if (changed || !File.Exists(Paths.ModManifest)) File.WriteAllLines(Paths.ModManifest, applied);
+        }
+
+        static bool SameContent(string a, string b)
+        {
+            if (!File.Exists(b)) return false;
+            var fa = new FileInfo(a);
+            var fb = new FileInfo(b);
+            if (fa.Length != fb.Length) return false;
+            if (fa.Length > 64 * 1024 * 1024) return false;
+            return File.ReadAllBytes(a).SequenceEqual(File.ReadAllBytes(b));
+        }
+
+        /// <summary>
+        /// Roblox reads FastFlags and mods only when it starts. A running Roblox is
+        /// out of date when they were written after it started.
+        /// </summary>
+        public static bool RunningHasOldSettings()
+        {
+            DateTime? started = null;
+            foreach (var p in Process.GetProcessesByName(ProcessName))
+            {
+                using (p)
+                {
+                    try { if (started == null || p.StartTime < started) started = p.StartTime; }
+                    catch (Exception) { }
+                }
+            }
+            if (started == null) return false;
+            var dir = InstalledDir;
+            var files = new[] { dir == null ? null : Path.Combine(dir, "ClientSettings", "ClientAppSettings.json"), Paths.ModManifest };
+            return files.Any(f => f != null && File.Exists(f) && File.GetLastWriteTime(f) > started.Value);
         }
 
         /// <summary>Roblox's own copy of a file, even while a mod replaces it.</summary>

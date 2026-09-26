@@ -48,7 +48,10 @@ private struct Greeting: View {
     private var line: String {
         switch model.state {
         case .working: return model.stage.isEmpty ? "Getting Roblox ready…" : model.stage
-        case .playing: return "Roblox is running. Have fun out there!"
+        case .playing:
+            return model.needsRestart
+                ? "Roblox is running with your old settings. Restart it to use your changes."
+                : "Roblox is running. Have fun out there!"
         case .notInstalled: return "Roblox isn't installed yet. It downloads when you press Play."
         case .updateReady: return "A Roblox update is ready and installs when you press Play."
         case .failed: return "Something went wrong. The details are below."
@@ -169,6 +172,7 @@ private struct Stage: View {
                 .padding(.top, 8)
                 .animation(.bounce, value: model.busy)
                 .animation(.bounce, value: model.robloxRunning)
+                .animation(.bounce, value: model.needsRestart)
         }
     }
 
@@ -201,7 +205,16 @@ private struct Stage: View {
                 .transition(.scale(scale: 0.85, anchor: .leading).combined(with: .opacity))
         } else {
             HStack(spacing: 14) {
-                if model.robloxRunning {
+                if model.robloxRunning && model.needsRestart {
+                    // Roblox only reads settings when it starts.
+                    Button { model.restartRoblox() } label: {
+                        Label("Restart to Apply", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.chunky(accent, size: .large))
+                    .keyboardShortcut(.defaultAction)
+                    .matchedGeometryEffect(id: "cta", in: ns)
+                    .help("Quit and relaunch Roblox with your latest settings")
+                } else if model.robloxRunning {
                     Button { model.launch() } label: {
                         Label("Open Roblox", systemImage: "arrow.up.forward.app.fill")
                     }

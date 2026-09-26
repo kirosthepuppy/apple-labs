@@ -200,7 +200,7 @@ namespace AppleLabs
                 if (!m.NeedsRestart || !m.RobloxRunning) return null;
                 var button = K.Button("Restart Roblox", m.RestartRoblox, K.Size.Small);
                 button.IsEnabled = !m.Busy;
-                return K.Card(K.Row(12, K.H(12, K.Icon("\uE72C", 20, K.Res("AccentBrush")), K.T("Roblox is open. Restart it to use your changes.", 13.5, FontWeights.SemiBold)), button),
+                return K.Card(K.Row(12, K.H(12, K.Icon("\uE72C", 20, K.Res("AccentBrush")), K.T("Roblox is still running with your old settings. Restart it to use your changes.", 13.5, FontWeights.SemiBold, 1, wrap: true)), button),
                     18, new Thickness(14), highlighted: true);
             });
     }
