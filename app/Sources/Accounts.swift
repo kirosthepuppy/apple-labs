@@ -57,6 +57,8 @@ final class AccountStore: ObservableObject, @unchecked Sendable {
 
     /// Refreshes saved sessions after Roblox quits (and finishes adding a new account).
     func autoSave() {
+        // A switch in progress saves the outgoing account itself.
+        guard !working else { return }
         ScriptRunner.run(["accounts", "save", "--auto"], completion: { _ in self.refresh() })
     }
 

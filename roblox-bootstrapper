@@ -653,6 +653,31 @@ account_value() {
   plutil -extract "$2" raw -o - "$ACCOUNTS_DIR/$1/account.json" 2>/dev/null || true
 }
 
+# Identifies the current version of Roblox's app storage file. Roblox rewrites
+# it whenever it runs, so a change means Roblox has run since we looked.
+storage_fingerprint() {
+  if [ -f "$ROBLOX_APP_STORAGE" ]; then stat -f '%i:%m:%z' "$ROBLOX_APP_STORAGE"; else echo none; fi
+}
+
+# Serialises account changes so a switch and an automatic save can't interleave.
+accounts_lock() {
+  local tries=0
+  # A lock left behind by a killed process is cleared after a minute.
+  [ -n "$(find "$ACCOUNTS_DIR/.lock" -maxdepth 0 -mmin +1 2>/dev/null)" ] && rmdir "$ACCOUNTS_DIR/.lock" 2>/dev/null
+  until mkdir "$ACCOUNTS_DIR/.lock" 2>/dev/null; do
+    tries=$((tries + 1))
+    [ "$tries" -gt 150 ] && die "another account change is still running; try again"
+    sleep 0.1
+  done
+  trap 'rmdir "$ACCOUNTS_DIR/.lock" 2>/dev/null' EXIT
+}
+
+# Records that we changed the session, and what Roblox's own record looked
+# like at that moment.
+mark_switched() {
+  storage_fingerprint > "$ACCOUNTS_DIR/.switched"
+}
+
 # The cookie jar holds a session only while someone is signed in.
 roblox_signed_in() {
   [ -f "$ROBLOX_COOKIES" ] && LC_ALL=C grep -aq 'ROBLOSECURITY' "$ROBLOX_COOKIES"
@@ -663,7 +688,7 @@ roblox_signed_in() {
 current_account() {
   roblox_signed_in || return 0
   local id
-  if [ -f "$ACCOUNTS_DIR/.switched" ] && [ "$ACCOUNTS_DIR/.switched" -nt "$ROBLOX_APP_STORAGE" ]; then
+  if [ -f "$ACCOUNTS_DIR/.switched" ] && [ "$(cat "$ACCOUNTS_DIR/.switched")" = "$(storage_fingerprint)" ]; then
     # We swapped sessions and Roblox hasn't run since, so its own record is stale.
     id="$(cat "$ACCOUNTS_DIR/.active" 2>/dev/null || true)"
     [ -n "$id" ] && [ -f "$ACCOUNTS_DIR/$id/account.json" ] || return 0
@@ -750,7 +775,7 @@ accounts_use() {
     && mv "$ROBLOX_COOKIES.tmp" "$ROBLOX_COOKIES" \
     || die "could not switch accounts"
   printf '%s\n' "$id" > "$ACCOUNTS_DIR/.active"
-  touch "$ACCOUNTS_DIR/.switched"
+  mark_switched
   rm -f "$ACCOUNTS_DIR/.adding"
   ok "switched to $(account_value "$id" displayName) (@$(account_value "$id" username))"
 }
@@ -767,7 +792,8 @@ accounts_add() {
   fi
   rm -f "$ROBLOX_COOKIES"
   : > "$ACCOUNTS_DIR/.active"
-  touch "$ACCOUNTS_DIR/.switched" "$ACCOUNTS_DIR/.adding"
+  mark_switched
+  touch "$ACCOUNTS_DIR/.adding"
   ok "Roblox is signed out on this Mac"
   info "Open Roblox and sign in with the other account; the launcher app saves it when Roblox quits"
   info "(or run \`$(basename "$0") accounts save\` once you've signed in)"
@@ -824,6 +850,8 @@ accounts_list() {
 
 cmd_accounts() {
   local sub="${1:-list}"; [ $# -gt 0 ] && shift
+  accounts_init
+  case "$sub" in list|ls) ;; *) accounts_lock ;; esac
   case "$sub" in
     list|ls) accounts_list "$@" ;;
     save) accounts_save "$@" ;;
