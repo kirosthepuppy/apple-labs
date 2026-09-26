@@ -36,7 +36,7 @@ enum Page: String, CaseIterable, Identifiable {
 
 enum GraphicsTab: String, CaseIterable { case presets, engine, flags }
 enum StyleTab: String, CaseIterable { case cursor, font, sound, files }
-enum LauncherTab: String, CaseIterable { case look, general, help }
+enum LauncherTab: String, CaseIterable { case look, accounts, general, help }
 
 /// Which page and sub-tab is showing. Remembered between launches.
 final class Router: ObservableObject {
@@ -89,11 +89,37 @@ struct RootView: View {
     @EnvironmentObject var router: Router
     @EnvironmentObject var library: GameLibrary
 
-    var body: some View {
-        ZStack(alignment: .topTrailing) {
-            AnimatedBackground(theme: model.theme, animated: model.animatedBackground, studs: model.showStuds)
-            Color.black.opacity(0.2).ignoresSafeArea()
+    static let minimumSize = CGSize(width: 960, height: 640)
 
+    var body: some View {
+        let scale = CGFloat(model.uiScale)
+        ZStack {
+            AnimatedBackground(theme: model.theme, animated: model.animatedBackground, studs: model.showStuds)
+            Color.black.opacity(model.theme.isGlass ? 0.08 : 0.2).ignoresSafeArea()
+
+            // Everything is laid out at 1/scale of the window and scaled back
+            // up, so the Interface size setting zooms the whole launcher.
+            GeometryReader { geo in
+                foreground
+                    .frame(width: geo.size.width / scale, height: geo.size.height / scale)
+                    .scaleEffect(scale, anchor: .topLeading)
+            }
+            .ignoresSafeArea()
+        }
+        .background(WindowStyler(glass: model.theme.isGlass))
+        .environment(\.colorScheme, .dark)
+        .tint(model.theme.accent)
+        .frame(minWidth: Self.minimumSize.width * scale, minHeight: Self.minimumSize.height * scale)
+        .onAppear {
+            model.refreshStatus()
+            library.refresh()
+            clearFocus()
+        }
+        .onChange(of: router.page) { _ in clearFocus() }
+    }
+
+    private var foreground: some View {
+        ZStack(alignment: .topTrailing) {
             HStack(alignment: .top, spacing: 0) {
                 Rail()
                     .padding(.leading, 14)
@@ -114,15 +140,8 @@ struct RootView: View {
                 .padding(.top, 12)
                 .padding(.trailing, 18)
         }
-        .environment(\.colorScheme, .dark)
-        .tint(model.theme.accent)
-        .frame(minWidth: 1000, minHeight: 680)
-        .onAppear {
-            model.refreshStatus()
-            library.refresh()
-            clearFocus()
-        }
-        .onChange(of: router.page) { _ in clearFocus() }
+        // A new font means every view has to redraw its text.
+        .id(model.launcherFont)
     }
 
     private var page: some View {
@@ -161,9 +180,12 @@ struct Rail: View {
     @EnvironmentObject var model: LauncherModel
     @EnvironmentObject var router: Router
     @EnvironmentObject var library: GameLibrary
+    @EnvironmentObject var accounts: AccountStore
     @State private var top: CGFloat = 0
     @State private var bottom: CGFloat = 64
     @State private var logoSpin: Double = 0
+    @State private var showAccounts = false
+    @State private var avatarHover = false
 
     private let itemHeight: CGFloat = 64
     private let gap: CGFloat = 8
@@ -201,7 +223,7 @@ struct Rail: View {
 
                 VStack(spacing: gap) {
                     ForEach(Page.allCases) { item in
-                        RailItem(page: item, selected: router.page == item) { router.go(item) }
+                        RailItem(page: item, current: router.page) { router.go(item) }
                             .frame(width: 64, height: itemHeight)
                     }
                 }
@@ -210,12 +232,31 @@ struct Rail: View {
 
             Spacer(minLength: 20)
 
-            if library.enabled, let player = library.player {
-                Avatar(url: player.avatarURL, size: 44)
-                    .help("Last played as \(player.displayName)")
-                    .padding(.bottom, 16)
-                    .transition(.scale.combined(with: .opacity))
+            Button { showAccounts.toggle() } label: {
+                AccountAvatar(url: accounts.avatar(for: accounts.current?.userId) ?? (library.enabled ? library.player?.avatarURL : nil),
+                              size: 44, ring: avatarHover || showAccounts ? accent : .white.opacity(0.4))
+                    .overlay(alignment: .bottomTrailing) {
+                        Image(systemName: "arrow.left.arrow.right")
+                            .font(.system(size: 8, weight: .black))
+                            .foregroundStyle(model.theme.onAccent)
+                            .frame(width: 18, height: 18)
+                            .background(Circle().fill(accent))
+                            .overlay(Circle().strokeBorder(.black.opacity(0.4), lineWidth: 1.5))
+                            .offset(x: 3, y: 3)
+                            .scaleEffect(avatarHover || showAccounts ? 1 : 0.001)
+                    }
+                    .scaleEffect(avatarHover ? 1.08 : 1)
             }
+            .buttonStyle(PressableStyle(pressedScale: 0.88))
+            .onHover { h in withAnimation(.wobble) { avatarHover = h } }
+            .help(accounts.current.map { "Signed in as \($0.name) · switch accounts" } ?? "Accounts")
+            .popover(isPresented: $showAccounts, arrowEdge: .trailing) {
+                AccountSwitcher(isPresented: $showAccounts)
+                    .environmentObject(model)
+                    .environmentObject(router)
+                    .environmentObject(accounts)
+            }
+            .padding(.bottom, 16)
         }
         .frame(width: 86)
         .frame(maxHeight: .infinity)
@@ -254,10 +295,12 @@ struct Rail: View {
 
 private struct RailItem: View {
     let page: Page
-    let selected: Bool
+    let current: Page
     let action: () -> Void
     @State private var hovering = false
     @State private var bump: CGFloat = 1
+
+    private var selected: Bool { page == current }
 
     var body: some View {
         Button(action: action) {
@@ -267,7 +310,7 @@ private struct RailItem: View {
                     .scaleEffect(bump)
                     .offset(y: hovering && !selected ? -2 : 0)
                 Text(page.title)
-                    .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                    .font(.ui(10.5, .bold))
             }
             .foregroundStyle(.white.opacity(selected ? 1 : (hovering ? 0.9 : 0.58)))
             .frame(width: 64, height: 64)
@@ -280,6 +323,9 @@ private struct RailItem: View {
         }
         .buttonStyle(PressableStyle(pressedScale: 0.88))
         .onHover { h in withAnimation(.snappy) { hovering = h } }
+        // Hover-exit events can get lost while the page animates; the pointer
+        // is on the clicked item anyway, so clear stale highlights elsewhere.
+        .onChange(of: current) { _ in if !selected { hovering = false } }
         .onChange(of: selected) { isSelected in
             guard isSelected else { return }
             var t = Transaction()
@@ -288,28 +334,6 @@ private struct RailItem: View {
             DispatchQueue.main.async { withAnimation(.wobble) { bump = 1 } }
         }
         .help(page.title + "  ⌘" + String(page.shortcut))
-    }
-}
-
-struct Avatar: View {
-    @EnvironmentObject var model: LauncherModel
-    let url: URL?
-    let size: CGFloat
-
-    var body: some View {
-        RemoteImage(url: url) {
-            Image(systemName: "person.fill")
-                .font(.system(size: size * 0.42))
-                .foregroundStyle(.white.opacity(0.7))
-                .frame(width: size, height: size)
-        }
-        .aspectRatio(contentMode: .fill)
-        .frame(width: size, height: size)
-        .background(Circle().fill(LinearGradient(colors: [model.theme.accent.mixed(with: .white, by: 0.2), model.theme.accent],
-                                                 startPoint: .top, endPoint: .bottom)))
-        .clipShape(Circle())
-        .overlay(Circle().strokeBorder(.white.opacity(0.4), lineWidth: 2))
-        .shadow(color: .black.opacity(0.3), radius: 6, y: 3)
     }
 }
 
@@ -325,11 +349,11 @@ struct StatusCapsule: View {
             PulseDot(color: model.state.color, pulsing: model.state.pulses && !reduceMotion)
                 .frame(width: 8, height: 8)
             Text(model.state.label)
-                .font(.system(size: 12.5, weight: .bold, design: .rounded))
+                .font(.ui(12.5, .bold))
             if let version = model.shortVersion {
                 Circle().fill(.white.opacity(0.3)).frame(width: 3, height: 3)
                 Text("Roblox \(version)")
-                    .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                    .font(.ui(12.5, .semibold))
                     .foregroundStyle(.white.opacity(0.6))
             }
             Button {
@@ -396,10 +420,10 @@ struct LinkLaunchView: View {
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text(title)
-                            .font(.system(size: 20, weight: .heavy, design: .rounded))
+                            .font(.ui(20, .heavy))
                             .lineLimit(1)
                         Text(model.errorMessage == nil ? model.stage : "See the details below.")
-                            .font(.system(size: 13))
+                            .font(.ui(13))
                             .foregroundStyle(.white.opacity(0.7))
                             .lineLimit(1)
                     }
@@ -418,7 +442,7 @@ struct LinkLaunchView: View {
                     HStack {
                         if let progress = model.progress {
                             Text("\(Int(progress * 100))%")
-                                .font(.system(size: 12, weight: .bold, design: .rounded).monospacedDigit())
+                                .font(.ui(12, .bold).monospacedDigit())
                                 .foregroundStyle(.white.opacity(0.6))
                         }
                         Spacer()
@@ -434,6 +458,7 @@ struct LinkLaunchView: View {
             .padding(22)
             .padding(.top, 16)
         }
+        .background(WindowStyler(glass: model.theme.isGlass))
         .environment(\.colorScheme, .dark)
         .frame(width: 460)
         .onAppear { withAnimation(.wobble) { pop = 1 } }

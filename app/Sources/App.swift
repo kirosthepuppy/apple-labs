@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 @main
@@ -16,7 +17,9 @@ enum Main {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let model = LauncherModel()
     let router = Router()
+    let accounts = AccountStore()
     lazy var library = GameLibrary(supportURL: model.supportURL)
+    private var subscriptions: Set<AnyCancellable> = []
     private var mainWindow: NSWindow?
     private var linkWindow: NSWindow?
     private var handledLink = false
@@ -33,7 +36,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         model.refreshStatus()
-        model.onRobloxExit = { [weak self] in self?.library.refresh() }
+        model.onRobloxExit = { [weak self] in
+            self?.library.refresh()
+            // Keep saved sign-ins fresh, and finish adding a new account.
+            self?.accounts.autoSave()
+        }
+        if model.robloxRunning { accounts.refresh() } else { accounts.autoSave() }
+        model.$uiScale
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] scale in self?.fitWindow(to: scale) }
+            .store(in: &subscriptions)
         let isDefaultLaunch = notification.userInfo?[NSApplication.launchIsDefaultUserInfoKey] as? Bool ?? true
         if isDefaultLaunch {
             showMainWindow()
@@ -91,7 +104,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 rootView: RootView()
                     .environmentObject(model)
                     .environmentObject(router)
-                    .environmentObject(library))
+                    .environmentObject(library)
+                    .environmentObject(accounts))
             window.setFrameAutosaveName("LauncherWindow")
             window.isReleasedWhenClosed = false
             window.delegate = self
@@ -100,6 +114,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         mainWindow?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Keeps the window at least as big as the interface needs at `scale`.
+    private func fitWindow(to scale: Double) {
+        guard let window = mainWindow else { return }
+        let minimum = NSSize(width: RootView.minimumSize.width * scale, height: RootView.minimumSize.height * scale)
+        window.contentMinSize = minimum
+        let content = window.contentRect(forFrameRect: window.frame).size
+        guard content.width < minimum.width || content.height < minimum.height else { return }
+        let size = NSSize(width: max(content.width, minimum.width), height: max(content.height, minimum.height))
+        var frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
+        frame.origin = NSPoint(x: window.frame.midX - frame.width / 2, y: window.frame.maxY - frame.height)
+        if let visible = window.screen?.visibleFrame {
+            frame.origin.x = min(max(frame.origin.x, visible.minX), max(visible.maxX - frame.width, visible.minX))
+            frame.origin.y = min(max(frame.origin.y, visible.minY), max(visible.maxY - frame.height, visible.minY))
+        }
+        window.setFrame(frame, display: true, animate: true)
     }
 
     private func showLinkWindow() {
@@ -153,6 +184,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         main.addItem(withTitle: "Edit", action: nil, keyEquivalent: "").submenu = edit
 
+        let view = NSMenu(title: "View")
+        for (title, key, action) in [("Zoom In", "=", #selector(zoomIn)), ("Zoom Out", "-", #selector(zoomOut)),
+                                     ("Actual Size", "0", #selector(actualSize))] {
+            view.addItem(withTitle: title, action: action, keyEquivalent: key).target = self
+        }
+        main.addItem(withTitle: "View", action: nil, keyEquivalent: "").submenu = view
+
         let go = NSMenu(title: "Go")
         for page in Page.allCases {
             let item = go.addItem(withTitle: page.title, action: #selector(goToPage(_:)), keyEquivalent: String(page.shortcut))
@@ -169,6 +207,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         return main
     }
+
+    @objc private func zoomIn() { model.zoom(by: 0.05) }
+    @objc private func zoomOut() { model.zoom(by: -0.05) }
+    @objc private func actualSize() { model.uiScale = 1 }
 
     @objc private func goToPage(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let page = Page(rawValue: raw) else { return }

@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-VERSION="1.3.0"
+VERSION="1.4.0"
 
 # ---------------------------------------------------------------------------
 # Configuration (all overridable through the environment)
@@ -164,7 +164,8 @@ fetch_latest() {
   ' "$json" || die "unexpected response from version service: $json"
 }
 
-roblox_running() { pgrep -x RobloxPlayer >/dev/null 2>&1; }
+# ROBLOX_PROCESS_NAME lets tests run while a real Roblox is open.
+roblox_running() { pgrep -x "${ROBLOX_PROCESS_NAME:-RobloxPlayer}" >/dev/null 2>&1; }
 
 # ---------------------------------------------------------------------------
 # FastFlags
@@ -625,6 +626,215 @@ cmd_unregister() {
 }
 
 # ---------------------------------------------------------------------------
+# Accounts
+#
+# The Roblox app keeps its sign-in in a cookie jar. A saved account is a copy
+# of that jar plus the account's name, kept only on this Mac with owner-only
+# permissions. Switching swaps the jar while Roblox is closed. Nothing is sent
+# anywhere and passwords are never involved.
+# ---------------------------------------------------------------------------
+
+ROBLOX_COOKIES="${ROBLOX_COOKIES_FILE:-$HOME/Library/HTTPStorages/com.roblox.RobloxPlayer.binarycookies}"
+ROBLOX_APP_STORAGE="${ROBLOX_APP_STORAGE_FILE:-$HOME/Library/Roblox/LocalStorage/appStorage.json}"
+ACCOUNTS_DIR="$SUPPORT_DIR/Accounts"
+
+accounts_init() {
+  (umask 077; mkdir -p "$ACCOUNTS_DIR")
+  chmod 700 "$ACCOUNTS_DIR"
+}
+
+# A value from Roblox's own app storage (UserId, Username, DisplayName).
+storage_value() {
+  [ -f "$ROBLOX_APP_STORAGE" ] || return 0
+  plutil -extract "$1" raw -o - "$ROBLOX_APP_STORAGE" 2>/dev/null || true
+}
+
+account_value() {
+  plutil -extract "$2" raw -o - "$ACCOUNTS_DIR/$1/account.json" 2>/dev/null || true
+}
+
+# The cookie jar holds a session only while someone is signed in.
+roblox_signed_in() {
+  [ -f "$ROBLOX_COOKIES" ] && LC_ALL=C grep -aq 'ROBLOSECURITY' "$ROBLOX_COOKIES"
+}
+
+# Prints "<user id>\t<username>\t<display name>" for the account whose session
+# is in Roblox's cookie jar; nothing when signed out or unknown.
+current_account() {
+  roblox_signed_in || return 0
+  local id
+  if [ -f "$ACCOUNTS_DIR/.switched" ] && [ "$ACCOUNTS_DIR/.switched" -nt "$ROBLOX_APP_STORAGE" ]; then
+    # We swapped sessions and Roblox hasn't run since, so its own record is stale.
+    id="$(cat "$ACCOUNTS_DIR/.active" 2>/dev/null || true)"
+    [ -n "$id" ] && [ -f "$ACCOUNTS_DIR/$id/account.json" ] || return 0
+    printf '%s\t%s\t%s\n' "$id" "$(account_value "$id" username)" "$(account_value "$id" displayName)"
+    return 0
+  fi
+  id="$(storage_value UserId)"
+  case "$id" in ''|*[!0-9]*) return 0 ;; esac
+  printf '%s\t%s\t%s\n' "$id" "$(storage_value Username)" "$(storage_value DisplayName)"
+}
+
+# Finds a saved account by user id, username or display name.
+find_account() {
+  local who dir id field
+  who="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  case "$1" in
+    *[!0-9]*|'') ;;
+    *) [ -f "$ACCOUNTS_DIR/$1/account.json" ] && { printf '%s\n' "$1"; return 0; } ;;
+  esac
+  for dir in "$ACCOUNTS_DIR"/*/; do
+    [ -f "$dir/account.json" ] || continue
+    id="$(basename "$dir")"
+    for field in username displayName; do
+      if [ "$(account_value "$id" "$field" | tr '[:upper:]' '[:lower:]')" = "$who" ]; then
+        printf '%s\n' "$id"
+        return 0
+      fi
+    done
+  done
+  return 1
+}
+
+accounts_rows() {
+  local dir id
+  for dir in "$ACCOUNTS_DIR"/*/; do
+    [ -f "$dir/account.json" ] || continue
+    id="$(basename "$dir")"
+    printf '%s\t%s\t%s\t%s\n' "$id" "$(account_value "$id" username)" \
+      "$(account_value "$id" displayName)" "$(account_value "$id" savedAt)"
+  done
+}
+
+# save [--quiet] [--auto]: remember the signed-in account. --auto (used after
+# Roblox quits) only refreshes accounts that are already saved, plus one that
+# is being added, so removing an account here sticks.
+accounts_save() {
+  local quiet="" auto="" arg info id username display dir
+  for arg in "$@"; do
+    case "$arg" in --quiet) quiet=1 ;; --auto) auto=1; quiet=1 ;; esac
+  done
+  accounts_init
+  info="$(current_account)"
+  if [ -z "$info" ]; then
+    [ -n "$quiet" ] && return 0
+    die "no Roblox account is signed in on this Mac (open Roblox and sign in first)"
+  fi
+  IFS=$'\t' read -r id username display <<< "$info"
+  dir="$ACCOUNTS_DIR/$id"
+  if [ -n "$auto" ] && [ ! -f "$dir/account.json" ] && [ ! -f "$ACCOUNTS_DIR/.adding" ]; then
+    return 0
+  fi
+  (umask 077; mkdir -p "$dir" && cp "$ROBLOX_COOKIES" "$dir/cookies.tmp") \
+    && mv "$dir/cookies.tmp" "$dir/cookies.binarycookies" \
+    || die "could not save the session for $username"
+  json_js 'return JSON.stringify({userId: args[0], username: args[1], displayName: args[2], savedAt: args[3]}, null, 2);' \
+    "$id" "$username" "$display" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$dir/account.json.tmp"
+  chmod 600 "$dir/account.json.tmp"
+  mv "$dir/account.json.tmp" "$dir/account.json"
+  printf '%s\n' "$id" > "$ACCOUNTS_DIR/.active"
+  rm -f "$ACCOUNTS_DIR/.adding"
+  [ -n "$quiet" ] || ok "saved ${display:-$username} (@$username)"
+}
+
+accounts_use() {
+  [ $# -ge 1 ] || die "usage: accounts use <user id | username>"
+  accounts_init
+  local id
+  id="$(find_account "$1")" || die "no saved account matches '$1' (see \`$(basename "$0") accounts list\`)"
+  roblox_running && die "quit Roblox before switching accounts"
+  # Keep the current session before replacing it.
+  accounts_save --quiet
+  mkdir -p "$(dirname "$ROBLOX_COOKIES")"
+  (umask 077; cp "$ACCOUNTS_DIR/$id/cookies.binarycookies" "$ROBLOX_COOKIES.tmp") \
+    && mv "$ROBLOX_COOKIES.tmp" "$ROBLOX_COOKIES" \
+    || die "could not switch accounts"
+  printf '%s\n' "$id" > "$ACCOUNTS_DIR/.active"
+  touch "$ACCOUNTS_DIR/.switched"
+  rm -f "$ACCOUNTS_DIR/.adding"
+  ok "switched to $(account_value "$id" displayName) (@$(account_value "$id" username))"
+}
+
+# Signs the Roblox app out on this Mac (the session itself stays valid and is
+# saved first) so another account can sign in.
+accounts_add() {
+  accounts_init
+  roblox_running && die "quit Roblox before adding an account"
+  accounts_save --quiet
+  if roblox_signed_in && [ ! -f "$ACCOUNTS_DIR/$(current_account | cut -f1)/account.json" ]; then
+    # Never throw away a session we couldn't identify.
+    (umask 077; cp "$ROBLOX_COOKIES" "$ACCOUNTS_DIR/unsaved-$(date +%Y%m%d%H%M%S).binarycookies")
+  fi
+  rm -f "$ROBLOX_COOKIES"
+  : > "$ACCOUNTS_DIR/.active"
+  touch "$ACCOUNTS_DIR/.switched" "$ACCOUNTS_DIR/.adding"
+  ok "Roblox is signed out on this Mac"
+  info "Open Roblox and sign in with the other account; the launcher app saves it when Roblox quits"
+  info "(or run \`$(basename "$0") accounts save\` once you've signed in)"
+}
+
+accounts_remove() {
+  [ $# -ge 1 ] || die "usage: accounts remove <user id | username>"
+  accounts_init
+  local id name
+  id="$(find_account "$1")" || die "no saved account matches '$1'"
+  name="$(account_value "$id" displayName)"
+  rm -rf "${ACCOUNTS_DIR:?}/$id"
+  [ "$(cat "$ACCOUNTS_DIR/.active" 2>/dev/null || true)" = "$id" ] && : > "$ACCOUNTS_DIR/.active"
+  ok "removed ${name:-$id} from the launcher (this doesn't sign it out anywhere)"
+}
+
+accounts_list() {
+  accounts_init
+  local current rows arg as_json=""
+  for arg in "$@"; do [ "$arg" = "--json" ] && as_json=1; done
+  current="$(current_account)"
+  rows="$(accounts_rows)"
+  if [ -n "$as_json" ]; then
+    json_js '
+      var cur = args[0] ? args[0].split("\t") : null;
+      var accounts = (args[1] ? args[1].split("\n") : []).filter(function (r) { return r; }).map(function (r) {
+        var f = r.split("\t");
+        return { userId: f[0], username: f[1], displayName: f[2], savedAt: f[3] || null,
+                 active: !!cur && cur[0] === f[0] };
+      });
+      return JSON.stringify({
+        current: cur ? { userId: cur[0], username: cur[1], displayName: cur[2] } : null,
+        signedIn: args[2] === "yes",
+        accounts: accounts
+      }, null, 2);
+    ' "$current" "$rows" "$(roblox_signed_in && echo yes || echo no)"
+    return
+  fi
+  if [ -z "$rows" ]; then
+    printf 'No saved accounts yet. Run `%s accounts save` to save the one signed in now.\n' "$(basename "$0")"
+  else
+    printf '%sSaved accounts%s\n' "$C_BOLD" "$C_OFF"
+    printf '%s\n' "$rows" | while IFS=$'\t' read -r id username display saved; do
+      if [ "$id" = "$(printf '%s' "$current" | cut -f1)" ]; then mark="●"; else mark=" "; fi
+      printf '  %s %s (@%s)  %s%s%s\n' "$mark" "$display" "$username" "$C_DIM" "$id" "$C_OFF"
+    done
+  fi
+  if [ -n "$current" ]; then
+    printf '\nSigned in to Roblox: %s (@%s)\n' "$(printf '%s' "$current" | cut -f3)" "$(printf '%s' "$current" | cut -f2)"
+  else
+    printf '\nRoblox is signed out on this Mac.\n'
+  fi
+}
+
+cmd_accounts() {
+  local sub="${1:-list}"; [ $# -gt 0 ] && shift
+  case "$sub" in
+    list|ls) accounts_list "$@" ;;
+    save) accounts_save "$@" ;;
+    use|switch) accounts_use "$@" ;;
+    add) accounts_add "$@" ;;
+    remove|rm) accounts_remove "$@" ;;
+    *) die "unknown accounts command '$sub' (list, save, use, add, remove)" ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
 # Config / status / uninstall
 # ---------------------------------------------------------------------------
 
@@ -739,6 +949,12 @@ ${C_BOLD}Usage:${C_OFF} $(basename "$0") <command> [args]
   mods list | apply | clear Files in the mods folder replace Roblox's own files
   mods path                 (the folder mirrors Roblox.app/Contents/Resources)
 
+  accounts [list]           Saved Roblox accounts (● = signed in now)
+  accounts save             Save the account signed in to Roblox now
+  accounts use <name|id>    Switch Roblox to a saved account (Roblox must be closed)
+  accounts add              Sign Roblox out here so you can sign in to another account
+  accounts remove <name|id> Forget a saved account (doesn't sign it out anywhere)
+
   register [--applet]       Install the launcher app and send roblox:// links
                             through it (--applet: minimal handler, no GUI)
   install-app               Download or update the launcher app
@@ -761,6 +977,7 @@ main() {
     status) cmd_status "$@" ;;
     fflags|flags) cmd_fflags "$@" ;;
     mods|mod) cmd_mods "$@" ;;
+    accounts|account) cmd_accounts "$@" ;;
     register) cmd_register "$@" ;;
     install-app) cmd_install_app ;;
     unregister) cmd_unregister ;;

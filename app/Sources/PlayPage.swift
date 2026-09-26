@@ -28,6 +28,7 @@ struct PlayPage: View {
 private struct Greeting: View {
     @EnvironmentObject var model: LauncherModel
     @EnvironmentObject var library: GameLibrary
+    @EnvironmentObject var accounts: AccountStore
 
     private var salutation: String {
         switch Calendar.current.component(.hour, from: Date()) {
@@ -38,7 +39,11 @@ private struct Greeting: View {
         }
     }
 
-    private var name: String? { library.enabled ? library.player?.displayName : nil }
+    /// The account signed in to Roblox, falling back to the last one seen in its logs.
+    private var name: String? { accounts.current?.name ?? (library.enabled ? library.player?.displayName : nil) }
+    private var avatarURL: URL? {
+        accounts.avatar(for: accounts.current?.userId) ?? (library.enabled ? library.player?.avatarURL : nil)
+    }
 
     private var line: String {
         switch model.state {
@@ -54,15 +59,15 @@ private struct Greeting: View {
 
     var body: some View {
         HStack(spacing: 16) {
-            if library.enabled, let player = library.player {
-                Avatar(url: player.avatarURL, size: 58)
+            if name != nil {
+                AccountAvatar(url: avatarURL, size: 58)
                     .transition(.scale.combined(with: .opacity))
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text(salutation + (name.map { ", \($0)" } ?? ""))
-                    .font(.system(size: 32, weight: .heavy, design: .rounded))
+                    .font(.ui(32, .heavy))
                 Text(line)
-                    .font(.system(size: 14))
+                    .font(.ui(14))
                     .foregroundStyle(.white.opacity(0.68))
                     .contentTransition(.opacity)
             }
@@ -166,11 +171,11 @@ private struct Stage: View {
             if let game {
                 HStack(spacing: 8) {
                     Text("LAST PLAYED")
-                        .font(.system(size: 11, weight: .heavy, design: .rounded))
+                        .font(.ui(11, .heavy))
                         .tracking(1.2)
                     Circle().fill(.white.opacity(0.5)).frame(width: 3, height: 3)
                     Text(game.lastPlayedText)
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .font(.ui(12, .semibold))
                 }
                 .foregroundStyle(.white.opacity(0.85))
                 .padding(.horizontal, 12)
@@ -182,7 +187,7 @@ private struct Stage: View {
             }
 
             Text(game?.displayName ?? fallbackTitle)
-                .font(.system(size: 44, weight: .heavy, design: .rounded))
+                .font(.ui(44, .heavy))
                 .lineLimit(2)
                 .minimumScaleFactor(0.6)
                 .shadow(color: .black.opacity(0.45), radius: 10, y: 3)
@@ -211,7 +216,7 @@ private struct Stage: View {
             HStack(spacing: 16) {
                 ForEach(items, id: \.text) { item in
                     Label(item.text, systemImage: item.symbol)
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .font(.ui(13, .semibold))
                         .foregroundStyle(.white.opacity(0.8))
                 }
             }
@@ -266,7 +271,7 @@ private struct Stage: View {
                 .frame(width: 36, height: 36)
             VStack(alignment: .leading, spacing: 8) {
                 Text(model.stage.isEmpty ? "Working…" : model.stage)
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .font(.ui(14, .bold))
                     .lineLimit(1)
                 GlowProgressBar(value: model.progress, accent: model.theme.accent)
                     .frame(width: 270)
@@ -300,7 +305,7 @@ private struct ProgressRing: View {
                     .rotationEffect(.degrees(-90))
                     .animation(.snappy, value: value)
                 Text("\(Int(value * 100))")
-                    .font(.system(size: 11, weight: .heavy, design: .rounded).monospacedDigit())
+                    .font(.ui(11, .heavy).monospacedDigit())
             } else {
                 Circle()
                     .trim(from: 0, to: 0.28)
@@ -324,9 +329,9 @@ private struct JumpBackIn: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text("Jump back in").font(.system(size: 20, weight: .heavy, design: .rounded))
+                Text("Jump back in").font(.ui(20, .heavy))
                 Text("From your Roblox history on this Mac")
-                    .font(.system(size: 12))
+                    .font(.ui(12))
                     .foregroundStyle(.white.opacity(0.5))
                 Spacer()
                 Button { library.refresh() } label: {
@@ -344,7 +349,7 @@ private struct JumpBackIn: View {
                     Text(library.refreshing
                          ? "Looking through your recent games…"
                          : "Games you play show up here, ready to rejoin in one click.")
-                        .font(.system(size: 13.5))
+                        .font(.ui(13.5))
                         .foregroundStyle(.white.opacity(0.7))
                     Spacer()
                 }
@@ -404,11 +409,11 @@ private struct GameTile: View {
                         .padding(10)
                 }
                 Text(game.displayName)
-                    .font(.system(size: 13.5, weight: .bold, design: .rounded))
+                    .font(.ui(13.5, .bold))
                     .lineLimit(2, reservesSpace: true)
                     .multilineTextAlignment(.leading)
                 Text(game.lastPlayedText)
-                    .font(.system(size: 11.5))
+                    .font(.ui(11.5))
                     .foregroundStyle(.white.opacity(0.55))
             }
             .frame(width: 150, alignment: .leading)
@@ -441,9 +446,9 @@ private struct Loadout: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text("Your loadout").font(.system(size: 20, weight: .heavy, design: .rounded))
+                Text("Your loadout").font(.ui(20, .heavy))
                 Text("Applied every time you play")
-                    .font(.system(size: 12))
+                    .font(.ui(12))
                     .foregroundStyle(.white.opacity(0.5))
                 Spacer()
             }
@@ -474,7 +479,7 @@ private struct LoadoutChip: View {
                     .overlay(Circle().strokeBorder(.white.opacity(item.active ? 0.35 : 0.1)))
                     .rotationEffect(.degrees(hovering ? -12 : 0))
                 Text(item.text)
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .font(.ui(13, .bold))
                     .foregroundStyle(.white.opacity(item.active ? 1 : 0.72))
                 Image(systemName: "chevron.right")
                     .font(.system(size: 9, weight: .heavy))

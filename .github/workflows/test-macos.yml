@@ -111,6 +111,47 @@ jobs:
           cmp "$RES/content/sounds/ouch.ogg" "$RES/content/sounds/oof.ogg"
           $BS mods clear
 
+      - name: Accounts
+        env:
+          # Fake sign-in files, so the test never touches a real session.
+          ROBLOX_COOKIES_FILE: ${{ runner.temp }}/cookies.binarycookies
+          ROBLOX_APP_STORAGE_FILE: ${{ runner.temp }}/appStorage.json
+        run: |
+          T="$RUNNER_TEMP"
+          ACC="$HOME/Library/Application Support/RobloxBootstrapper/Accounts"
+          signin() {
+            printf 'jar .ROBLOSECURITY for %s\n' "$1" > "$T/cookies.binarycookies"
+            sleep 1.1
+            printf '{"UserId":"%s","Username":"%s","DisplayName":"%s"}' "$2" "$1" "$3" > "$T/appStorage.json"
+          }
+          $BS accounts list | grep -q "No saved accounts"
+          signin alpha 111 Alpha
+          $BS accounts save
+          # Adding signs Roblox out locally; the new sign-in is saved when Roblox quits.
+          $BS accounts add
+          test ! -f "$T/cookies.binarycookies"
+          signin beta 222 Beta
+          $BS accounts save --auto
+          $BS accounts list | tee accounts.txt
+          grep -q "Alpha (@alpha)" accounts.txt
+          grep -q "Beta (@beta)" accounts.txt
+          $BS accounts use alpha
+          grep -q "for alpha" "$T/cookies.binarycookies"
+          $BS accounts list --json > accounts.json
+          python3 -c 'import json; d = json.load(open("accounts.json")); assert d["current"]["username"] == "alpha"; assert [a["active"] for a in d["accounts"]] == [True, False]'
+          $BS accounts use Beta
+          grep -q "for beta" "$T/cookies.binarycookies"
+          # A removed account isn't brought back by the automatic save.
+          $BS accounts remove beta
+          signin gamma 333 Gamma
+          $BS accounts save --auto
+          $BS accounts list > accounts.txt
+          ! grep -q "gamma" accounts.txt
+          ! grep -q "Beta" accounts.txt
+          if $BS accounts use '../x'; then echo "path-like name accepted"; exit 1; fi
+          [ "$(stat -f %Lp "$ACC")" = 700 ]
+          [ "$(stat -f %Lp "$ACC/111/cookies.binarycookies")" = 600 ]
+
       - name: Launch
         run: |
           $BS launch

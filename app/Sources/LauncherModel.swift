@@ -1,6 +1,7 @@
 import AppKit
 import CoreServices
 import Foundation
+import SwiftUI
 
 /// A FastFlag value, typed the same way `roblox-bootstrapper fflags set` does.
 enum FlagValue: Equatable {
@@ -80,9 +81,35 @@ final class LauncherModel: ObservableObject {
     @Published var closeOnLaunch: Bool {
         didSet { UserDefaults.standard.set(closeOnLaunch, forKey: "closeOnLaunch") }
     }
-    @Published var theme: LauncherTheme {
-        didSet { UserDefaults.standard.set(theme.rawValue, forKey: "theme") }
+    @Published var themeID: ThemeID {
+        didSet { UserDefaults.standard.set(themeID.rawValue, forKey: "themeID") }
     }
+    /// The colours of the Custom theme, kept even while another theme is in use.
+    @Published var customTheme: Theme {
+        didSet {
+            let d = UserDefaults.standard
+            d.set(customTheme.accent.hex, forKey: "customAccent")
+            d.set(customTheme.base.hex, forKey: "customBase")
+            d.set(customTheme.heroGlow.hex, forKey: "customHero")
+            d.set(customTheme.glows.map(\.hex), forKey: "customGlows")
+        }
+    }
+    @Published var launcherFont: LauncherFont {
+        didSet {
+            LauncherFont.current = launcherFont
+            UserDefaults.standard.set(launcherFont.rawValue, forKey: "launcherFont")
+        }
+    }
+    /// How big the whole interface is drawn, 0.8–1.3.
+    @Published var uiScale: Double {
+        didSet {
+            let clamped = min(max((uiScale * 20).rounded() / 20, Self.scaleRange.lowerBound), Self.scaleRange.upperBound)
+            // Assigning inside didSet doesn't re-run it, so save afterwards either way.
+            if clamped != uiScale { uiScale = clamped }
+            UserDefaults.standard.set(uiScale, forKey: "uiScale")
+        }
+    }
+    static let scaleRange: ClosedRange<Double> = 0.8...1.3
     @Published var animatedBackground: Bool {
         didSet { UserDefaults.standard.set(animatedBackground, forKey: "animatedBackground") }
     }
@@ -110,15 +137,33 @@ final class LauncherModel: ObservableObject {
     var modsURL: URL { supportURL.appendingPathComponent("Modifications", isDirectory: true) }
     var logURL: URL { supportURL.appendingPathComponent("bootstrapper.log") }
 
+    /// The theme in use, with the Custom theme's saved colours filled in.
+    var theme: Theme { themeID == .custom ? customTheme : .preset(themeID) }
+
+    func zoom(by step: Double) { uiScale = min(max(uiScale + step, Self.scaleRange.lowerBound), Self.scaleRange.upperBound) }
+
     var robloxAppURL: URL {
         URL(fileURLWithPath: status?.installPath ?? "/Applications/Roblox.app")
     }
 
     init() {
-        UserDefaults.standard.register(defaults: ["closeOnLaunch": true, "animatedBackground": true,
-                                                  "showStuds": true, "celebrateLaunches": true])
-        closeOnLaunch = UserDefaults.standard.bool(forKey: "closeOnLaunch")
-        theme = LauncherTheme(rawValue: UserDefaults.standard.string(forKey: "theme") ?? "") ?? .sunset
+        let d = UserDefaults.standard
+        d.register(defaults: ["closeOnLaunch": true, "animatedBackground": true,
+                              "showStuds": true, "celebrateLaunches": true, "uiScale": 1.0])
+        closeOnLaunch = d.bool(forKey: "closeOnLaunch")
+        themeID = ThemeID(rawValue: d.string(forKey: "themeID") ?? "") ?? .obsidian
+        var custom = Theme.preset(.custom)
+        if let accent = d.string(forKey: "customAccent").flatMap(Color.init(hex:)) { custom.accent = accent }
+        if let base = d.string(forKey: "customBase").flatMap(Color.init(hex:)) { custom.base = base }
+        if let hero = d.string(forKey: "customHero").flatMap(Color.init(hex:)) { custom.heroGlow = hero }
+        if let glows = d.stringArray(forKey: "customGlows")?.compactMap(Color.init(hex:)), glows.count == 3 {
+            custom.glows = glows
+        }
+        customTheme = custom
+        let font = LauncherFont(rawValue: d.string(forKey: "launcherFont") ?? "") ?? .avenir
+        launcherFont = font
+        LauncherFont.current = font
+        uiScale = d.double(forKey: "uiScale")
         animatedBackground = UserDefaults.standard.bool(forKey: "animatedBackground")
         showStuds = UserDefaults.standard.bool(forKey: "showStuds")
         celebrateLaunches = UserDefaults.standard.bool(forKey: "celebrateLaunches")
@@ -227,7 +272,16 @@ final class LauncherModel: ObservableObject {
 
     /// Quit Roblox, wait for it to exit, then launch again through the script.
     func restartRoblox() {
+        quitRoblox { [weak self] in
+            self?.needsRestart = false
+            self?.launch()
+        }
+    }
+
+    /// Asks Roblox to quit and calls `done` once it has (or after ~10 seconds).
+    func quitRoblox(then done: @escaping () -> Void) {
         let apps = NSWorkspace.shared.runningApplications.filter { $0.bundleIdentifier == Self.robloxBundleID }
+        guard !apps.isEmpty else { done(); return }
         apps.forEach { $0.terminate() }
         busy = true
         stage = "Closing Roblox"
@@ -235,8 +289,7 @@ final class LauncherModel: ObservableObject {
             guard let self else { return }
             self.busy = false
             self.refreshRunning()
-            self.needsRestart = false
-            self.launch()
+            done()
         }
     }
 

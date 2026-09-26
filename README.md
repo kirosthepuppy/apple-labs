@@ -48,8 +48,23 @@ Core Animation, so it idles at ~0% CPU, and Reduce Motion is respected.
 |----------|--------------|
 | Play     | Greets you with your Roblox avatar, shows your last game's artwork and live player count with a big Play button that rejoins it (with update progress and a confetti burst), a "Jump back in" row of recent games, and your loadout at a glance. |
 | Graphics | **Presets** (Roblox default, Balanced, Performance, Quality, Potato, with speed/looks meters), **Engine** settings (frame rate, anti-aliasing, textures, post-processing, grass, sky), and a full **FastFlags** editor with search and JSON import/export (works with Bloxstrap/Fishstrap exports). |
-| Style    | **Cursor** (default, classic arrow, or your own image, with a live preview), **Font** (any .ttf/.otf on your Mac, each shown in its own typeface), **Sound** (default, classic "oof", or your own, with previews), and the **Files** mods folder. |
-| Launcher | **Look** (five themes, moving background, studs, confetti), **General** (close on launch, website links, recent games, channel, install location, build, reinstall), and **Help**. |
+| Style    | **Cursor** (default, classic arrow, or your own image, with a live preview), **Font** for the game (any .ttf/.otf on your Mac, each shown in its own typeface), **Sound** (default, classic "oof", or your own, with previews), and the **Files** mods folder. |
+| Launcher | **Look**: themes (Glass, Obsidian, Neon, Lava, Mint, Arctic, Sakura, or Custom with your own colours and a "Surprise me" button), the launcher's font (Avenir Next, SF Pro, Futura, Gill Sans, SF Rounded, SF Mono), interface size (80–130%, also ⌘+ / ⌘− / ⌘0), and motion. **Accounts**: switch Roblox accounts. **General**: close on launch, website links, recent games, channel, install location, build, reinstall. **Help**. |
+
+The **Glass** theme makes the window see-through, with your desktop frosted
+behind it.
+
+### Account switching
+
+Click your avatar at the bottom of the rail to switch accounts. A saved account
+is a copy of the Roblox app's own sign-in (its cookie jar), kept only on this
+Mac in the launcher's data folder with owner-only permissions; switching swaps
+it in while Roblox is closed. The launcher never sees your password, and
+removing an account only makes the launcher forget it. **Add account** saves
+the current account, signs the Roblox app out on this Mac and opens it so you
+can sign in to another one; it's saved when you quit Roblox. The same works
+from Terminal with `roblox-bootstrapper accounts`. Website Play buttons use
+whichever account is signed in on roblox.com in your browser.
 
 Recent games come from Roblox's own log files on your Mac; their names,
 pictures and player counts come from Roblox's public web APIs. Turn this off
@@ -84,6 +99,9 @@ roblox-bootstrapper fflags import flags.json
 roblox-bootstrapper fflags edit | clear | apply
 
 roblox-bootstrapper mods list | apply | clear | path
+
+roblox-bootstrapper accounts [list] | save | add
+roblox-bootstrapper accounts use <name> | remove <name>
 
 roblox-bootstrapper register [--applet] | unregister
 roblox-bootstrapper install-app

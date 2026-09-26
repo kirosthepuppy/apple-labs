@@ -92,7 +92,7 @@ struct RestartHint: View {
                     .font(.system(size: 22))
                     .foregroundStyle(model.theme.accent)
                 Text("Roblox is open. Restart it to use your changes.")
-                    .font(.system(size: 13.5, weight: .semibold))
+                    .font(.ui(13.5, .semibold))
                 Spacer()
                 Button("Restart Roblox") { model.restartRoblox() }
                     .buttonStyle(.chunky(model.theme.accent, size: .small))
@@ -113,7 +113,7 @@ struct FlowChips: View {
         FlowLayout(spacing: 6) {
             ForEach(items, id: \.self) { item in
                 Text(item)
-                    .font(.system(size: 11.5, weight: .bold, design: .rounded))
+                    .font(.ui(11.5, .bold))
                     .padding(.horizontal, 9)
                     .padding(.vertical, 4)
                     .background(Capsule().fill(.white.opacity(0.1)))

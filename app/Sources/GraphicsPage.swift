@@ -57,9 +57,9 @@ private struct PresetsTab: View {
                     } content: {
                         VStack(alignment: .leading, spacing: 11) {
                             IconBadge(symbol: preset.symbol)
-                            Text(preset.name).font(.system(size: 19, weight: .heavy, design: .rounded))
+                            Text(preset.name).font(.ui(19, .heavy))
                             Text(preset.blurb)
-                                .font(.system(size: 12.5))
+                                .font(.ui(12.5))
                                 .foregroundStyle(.white.opacity(0.7))
                                 .lineLimit(2, reservesSpace: true)
                             VStack(spacing: 6) {
@@ -84,7 +84,7 @@ private struct PresetsTab: View {
                 Button("Fine-tune") { withAnimation(.bounce) { router.graphicsTab = .engine } }
                     .buttonStyle(.chunkyGlass(size: .small))
             }
-            .font(.system(size: 12.5))
+            .font(.ui(12.5))
             .foregroundStyle(.white.opacity(0.7))
             .padding(14)
             .glass(corner: 16)
@@ -104,7 +104,7 @@ private struct Meter: View {
     var body: some View {
         HStack(spacing: 8) {
             Text(label)
-                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .font(.ui(11, .bold))
                 .foregroundStyle(.white.opacity(0.6))
                 .frame(width: 42, alignment: .leading)
             HStack(spacing: 4) {
@@ -210,7 +210,7 @@ private struct EngineTab: View {
             .appearIn(2)
 
             Text("Roblox only honours FastFlags on its allowlist and quietly ignores the rest. Changes load the next time Roblox starts.")
-                .font(.system(size: 12))
+                .font(.ui(12))
                 .foregroundStyle(.white.opacity(0.5))
                 .appearIn(3)
         }
@@ -270,7 +270,7 @@ private struct FlagsTab: View {
             GlassGroup {
                 if names.isEmpty {
                     Text(model.flags.isEmpty ? "No FastFlags yet. Add one below or import a JSON file." : "No flags match \"\(search)\".")
-                        .font(.system(size: 13))
+                        .font(.ui(13))
                         .foregroundStyle(.white.opacity(0.55))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(18)
@@ -304,7 +304,7 @@ private struct FlagsTab: View {
             .appearIn(2)
 
             Text("true/false and whole numbers are saved as booleans and integers; anything else is saved as text. Works with flags exported from Bloxstrap and Fishstrap.")
-                .font(.system(size: 12))
+                .font(.ui(12))
                 .foregroundStyle(.white.opacity(0.5))
         }
         .confirmationDialog("Remove all FastFlags?", isPresented: $confirmClear) {

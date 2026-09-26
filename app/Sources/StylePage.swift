@@ -75,8 +75,8 @@ private struct CursorTab: View {
             VStack(alignment: .leading, spacing: 12) {
                 CursorPreview(image: image)
                     .frame(height: 124)
-                Text(title).font(.system(size: 17, weight: .heavy, design: .rounded))
-                Text(detail).font(.system(size: 12.5)).foregroundStyle(.white.opacity(0.65))
+                Text(title).font(.ui(17, .heavy))
+                Text(detail).font(.ui(12.5)).foregroundStyle(.white.opacity(0.65))
                     .lineLimit(2, reservesSpace: true)
             }
             .foregroundStyle(.white)
@@ -169,7 +169,7 @@ private struct FontTab: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Text((model.customFontName ?? "Roblox default").uppercased())
-                        .font(.system(size: 11, weight: .heavy, design: .rounded))
+                        .font(.ui(11, .heavy))
                         .tracking(1.2)
                         .foregroundStyle(.white.opacity(0.6))
                     Spacer()
@@ -188,11 +188,11 @@ private struct FontTab: View {
                     }
                 }
                 Text("The quick brown fox jumps over the lazy dog")
-                    .font(model.customFontPreview(size: 34) ?? .system(size: 34, weight: .heavy, design: .rounded))
+                    .font(model.customFontPreview(size: 34) ?? .ui(34, .heavy))
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
                 Text("ABCDEFGHIJKLM  0123456789  !?&")
-                    .font(model.customFontPreview(size: 18) ?? .system(size: 18, design: .rounded))
+                    .font(model.customFontPreview(size: 18) ?? .ui(18))
                     .foregroundStyle(.white.opacity(0.75))
             }
             .padding(22)
@@ -243,7 +243,7 @@ private struct FontCard: View {
                     .lineLimit(1)
                     .frame(height: 40, alignment: .leading)
                 Text(font.family)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .font(.ui(12, .semibold))
                     .foregroundStyle(.white.opacity(0.7))
                     .lineLimit(1)
             }
@@ -304,7 +304,7 @@ private struct SoundTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("What you hear when your character resets.")
-                .font(.system(size: 13))
+                .font(.ui(13))
                 .foregroundStyle(.white.opacity(0.65))
                 .appearIn(1)
             HStack(spacing: 16) {
@@ -353,8 +353,8 @@ private struct SoundTab: View {
                         .padding(.trailing, 30)
                     }
                 }
-                Text(title).font(.system(size: 17, weight: .heavy, design: .rounded))
-                Text(detail).font(.system(size: 12.5)).foregroundStyle(.white.opacity(0.65))
+                Text(title).font(.ui(17, .heavy))
+                Text(detail).font(.ui(12.5)).foregroundStyle(.white.opacity(0.65))
             }
             .foregroundStyle(.white)
         }
@@ -394,14 +394,14 @@ private struct FilesTab: View {
                 HStack(spacing: 14) {
                     IconBadge(symbol: "folder.fill", size: 52)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Modifications folder").font(.system(size: 17, weight: .heavy, design: .rounded))
+                        Text("Modifications folder").font(.ui(17, .heavy))
                         Text("\(model.modFileCount) file\(model.modFileCount == 1 ? "" : "s") · mirrors Roblox.app/Contents/Resources")
-                            .font(.system(size: 12.5)).foregroundStyle(.white.opacity(0.6))
+                            .font(.ui(12.5)).foregroundStyle(.white.opacity(0.6))
                     }
                     Spacer()
                 }
                 Text("Drop files in with the same path they have inside Roblox. For example, content/sounds/ouch.ogg replaces the death sound and content/textures/… replaces textures. Removing a file puts Roblox's original back.")
-                    .font(.system(size: 13))
+                    .font(.ui(13))
                     .foregroundStyle(.white.opacity(0.65))
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 12) {

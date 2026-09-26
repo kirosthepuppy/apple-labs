@@ -3,55 +3,115 @@ import SwiftUI
 
 // MARK: - Themes
 
-enum LauncherTheme: String, CaseIterable, Identifiable {
-    case sunset, ocean, aurora, candy, midnight
+enum ThemeID: String, CaseIterable, Identifiable {
+    case glass, obsidian, neon, lava, mint, arctic, sakura, custom
 
     var id: String { rawValue }
 
     var name: String {
         switch self {
-        case .sunset: return "Sunset"
-        case .ocean: return "Ocean"
-        case .aurora: return "Aurora"
-        case .candy: return "Candy"
-        case .midnight: return "Midnight"
+        case .glass: return "Glass"
+        case .obsidian: return "Obsidian"
+        case .neon: return "Neon"
+        case .lava: return "Lava"
+        case .mint: return "Mint"
+        case .arctic: return "Arctic"
+        case .sakura: return "Sakura"
+        case .custom: return "Custom"
         }
     }
+}
 
+/// The colours the whole launcher is painted with.
+struct Theme: Equatable {
+    var id: ThemeID
     /// Three glow colours drifting behind the window content.
-    var glows: [Color] {
-        switch self {
-        case .sunset: return [rgb(0.93, 0.50, 0.16), rgb(0.42, 0.22, 0.45), rgb(0.12, 0.34, 0.78)]
-        case .ocean: return [rgb(0.05, 0.60, 0.75), rgb(0.10, 0.25, 0.70), rgb(0.30, 0.15, 0.60)]
-        case .aurora: return [rgb(0.10, 0.75, 0.50), rgb(0.08, 0.45, 0.55), rgb(0.45, 0.20, 0.70)]
-        case .candy: return [rgb(0.95, 0.35, 0.60), rgb(0.55, 0.25, 0.85), rgb(0.98, 0.60, 0.30)]
-        case .midnight: return [rgb(0.25, 0.28, 0.45), rgb(0.12, 0.14, 0.28), rgb(0.30, 0.22, 0.40)]
-        }
-    }
-
-    var accent: Color {
-        switch self {
-        case .sunset, .ocean, .midnight: return rgb(0.20, 0.47, 1.00)
-        case .aurora: return rgb(0.12, 0.70, 0.48)
-        case .candy: return rgb(0.90, 0.30, 0.60)
-        }
-    }
-
-    var base: Color { rgb(0.06, 0.07, 0.10) }
-
+    var glows: [Color]
+    var accent: Color
+    var base: Color
     /// The deep end of the hero gradient when there is no game artwork.
-    var heroGlow: Color {
-        switch self {
-        case .sunset, .ocean, .midnight: return rgb(0.05, 0.12, 0.55)
-        case .aurora: return rgb(0.03, 0.35, 0.30)
-        case .candy: return rgb(0.40, 0.08, 0.40)
+    var heroGlow: Color
+
+    var isGlass: Bool { id == .glass }
+    var confetti: [Color] { glows + [accent, .white, rgb(1.0, 0.82, 0.25)] }
+
+    /// Text and icons drawn on top of the accent: dark on light accents.
+    var onAccent: Color { accent.luminance > 0.5 ? Color(white: 0.08) : .white }
+
+    static func preset(_ id: ThemeID) -> Theme {
+        switch id {
+        case .glass:
+            return Theme(id: id, glows: [rgb(0.45, 0.65, 1.0), rgb(0.70, 0.50, 1.0), rgb(0.35, 0.85, 0.90)],
+                         accent: rgb(0.25, 0.52, 1.0), base: .clear, heroGlow: rgb(0.10, 0.20, 0.45))
+        case .obsidian:
+            return Theme(id: id, glows: [rgb(0.36, 0.20, 0.62), rgb(0.12, 0.10, 0.26), rgb(0.55, 0.22, 0.52)],
+                         accent: rgb(0.58, 0.40, 1.0), base: rgb(0.035, 0.03, 0.06), heroGlow: rgb(0.22, 0.09, 0.42))
+        case .neon:
+            return Theme(id: id, glows: [rgb(1.0, 0.18, 0.62), rgb(0.10, 0.80, 1.0), rgb(0.42, 0.10, 0.85)],
+                         accent: rgb(0.96, 0.20, 0.58), base: rgb(0.045, 0.02, 0.09), heroGlow: rgb(0.34, 0.03, 0.40))
+        case .lava:
+            return Theme(id: id, glows: [rgb(1.0, 0.38, 0.10), rgb(0.78, 0.08, 0.12), rgb(0.40, 0.06, 0.05)],
+                         accent: rgb(0.93, 0.34, 0.12), base: rgb(0.07, 0.025, 0.02), heroGlow: rgb(0.45, 0.08, 0.03))
+        case .mint:
+            return Theme(id: id, glows: [rgb(0.18, 0.85, 0.58), rgb(0.04, 0.42, 0.40), rgb(0.55, 0.90, 0.30)],
+                         accent: rgb(0.08, 0.60, 0.42), base: rgb(0.02, 0.06, 0.05), heroGlow: rgb(0.03, 0.30, 0.24))
+        case .arctic:
+            return Theme(id: id, glows: [rgb(0.50, 0.82, 1.0), rgb(0.22, 0.42, 0.88), rgb(0.62, 0.74, 0.95)],
+                         accent: rgb(0.18, 0.52, 0.94), base: rgb(0.035, 0.06, 0.11), heroGlow: rgb(0.07, 0.24, 0.50))
+        case .sakura:
+            return Theme(id: id, glows: [rgb(1.0, 0.58, 0.74), rgb(0.72, 0.36, 0.68), rgb(1.0, 0.76, 0.58)],
+                         accent: rgb(0.90, 0.31, 0.53), base: rgb(0.075, 0.035, 0.055), heroGlow: rgb(0.44, 0.11, 0.30))
+        case .custom:
+            return Theme(id: id, glows: [rgb(0.95, 0.45, 0.20), rgb(0.35, 0.20, 0.60), rgb(0.10, 0.45, 0.85)],
+                         accent: rgb(0.20, 0.47, 1.0), base: rgb(0.05, 0.05, 0.08), heroGlow: rgb(0.08, 0.14, 0.45))
         }
     }
 
-    var confetti: [Color] { glows + [accent, .white, rgb(1.0, 0.82, 0.25)] }
+    /// A random but harmonious palette for the custom theme.
+    static func surprise() -> Theme {
+        let hue = Double.random(in: 0..<1)
+        func hsb(_ h: Double, _ s: Double, _ b: Double) -> Color {
+            Color(hue: (h + 1).truncatingRemainder(dividingBy: 1), saturation: s, brightness: b)
+        }
+        let spread = Double.random(in: 0.08...0.3)
+        return Theme(id: .custom,
+                     glows: [hsb(hue, 0.75, 0.95), hsb(hue + spread, 0.7, 0.6), hsb(hue - spread, 0.8, 0.85)],
+                     accent: hsb(hue + spread / 2, 0.75, 0.82),
+                     base: hsb(hue, 0.45, 0.06),
+                     heroGlow: hsb(hue, 0.8, 0.4))
+    }
 }
 
 private func rgb(_ r: Double, _ g: Double, _ b: Double) -> Color { Color(red: r, green: g, blue: b) }
+
+extension Color {
+    private var srgb: NSColor { NSColor(self).usingColorSpace(.sRGB) ?? NSColor(self) }
+
+    /// Relative luminance, 0 (black) to 1 (white).
+    var luminance: Double {
+        let c = srgb
+        func channel(_ v: CGFloat) -> Double {
+            let v = Double(v)
+            return v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * channel(c.redComponent) + 0.7152 * channel(c.greenComponent) + 0.0722 * channel(c.blueComponent)
+    }
+
+    /// "#RRGGBB", for saving colours in preferences.
+    var hex: String {
+        let c = srgb
+        return String(format: "#%02X%02X%02X", Int(round(c.redComponent * 255)), Int(round(c.greenComponent * 255)),
+                      Int(round(c.blueComponent * 255)))
+    }
+
+    init?(hex: String) {
+        var text = hex.trimmingCharacters(in: .whitespaces)
+        if text.hasPrefix("#") { text.removeFirst() }
+        guard text.count == 6, let value = UInt32(text, radix: 16) else { return nil }
+        self = Color(red: Double((value >> 16) & 0xFF) / 255, green: Double((value >> 8) & 0xFF) / 255,
+                     blue: Double(value & 0xFF) / 255)
+    }
+}
 
 extension Color {
     /// Blends toward another colour, e.g. `.white` for a highlight or `.black` for a shadow.
@@ -71,21 +131,66 @@ extension Animation {
 // MARK: - Background
 
 struct AnimatedBackground: View {
-    let theme: LauncherTheme
+    let theme: Theme
     let animated: Bool
     var studs = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
-            BackdropLayers(colors: theme.glows, base: theme.base, animated: animated && !reduceMotion, studs: studs)
+            if theme.isGlass {
+                // Frosted glass: the desktop shows through, blurred, with a
+                // soft wash of colour on top.
+                VisualEffectBlur(material: .hudWindow)
+                BackdropLayers(colors: theme.glows, base: .clear, glowAlpha: 0.32,
+                               animated: animated && !reduceMotion, studs: studs)
+                Color.black.opacity(0.12)
+            } else {
+                BackdropLayers(colors: theme.glows, base: theme.base, glowAlpha: 0.85,
+                               animated: animated && !reduceMotion, studs: studs)
+            }
             // A soft vignette keeps the edges from getting too bright.
             GeometryReader { geo in
-                RadialGradient(colors: [.clear, .black.opacity(0.5)], center: .center,
+                RadialGradient(colors: [.clear, .black.opacity(theme.isGlass ? 0.28 : 0.5)], center: .center,
                                startRadius: geo.size.width * 0.2, endRadius: geo.size.width * 0.8)
             }
         }
         .ignoresSafeArea()
+    }
+}
+
+/// A behind-window blur, for the Glass theme.
+struct VisualEffectBlur: NSViewRepresentable {
+    var material: NSVisualEffectView.Material
+    var blending: NSVisualEffectView.BlendingMode = .behindWindow
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.state = .active
+        update(view)
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) { update(view) }
+
+    private func update(_ view: NSVisualEffectView) {
+        view.material = material
+        view.blendingMode = blending
+    }
+}
+
+/// Makes the hosting window see-through for the Glass theme and opaque otherwise.
+struct WindowStyler: NSViewRepresentable {
+    let glass: Bool
+
+    func makeNSView(context: Context) -> NSView { NSView() }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        DispatchQueue.main.async {
+            guard let window = view.window else { return }
+            window.isOpaque = !glass
+            window.backgroundColor = glass ? .clear : .black
+        }
     }
 }
 
@@ -94,13 +199,15 @@ struct AnimatedBackground: View {
 private struct BackdropLayers: NSViewRepresentable {
     let colors: [Color]
     let base: Color
+    let glowAlpha: CGFloat
     let animated: Bool
     let studs: Bool
 
     func makeNSView(context: Context) -> BackdropView { BackdropView() }
 
     func updateNSView(_ view: BackdropView, context: Context) {
-        view.update(colors: colors.map { NSColor($0) }, base: NSColor(base), animated: animated, studs: studs)
+        view.update(colors: colors.map { NSColor($0) }, base: NSColor(base), glowAlpha: glowAlpha,
+                    animated: animated, studs: studs)
     }
 
     final class BackdropView: NSView {
@@ -135,14 +242,14 @@ private struct BackdropLayers: NSViewRepresentable {
 
         required init?(coder: NSCoder) { fatalError() }
 
-        func update(colors: [NSColor], base: NSColor, animated: Bool, studs: Bool) {
+        func update(colors: [NSColor], base: NSColor, glowAlpha: CGFloat, animated: Bool, studs: Bool) {
             let changed = colors != self.colors
             CATransaction.begin()
             CATransaction.setAnimationDuration(changed && !self.colors.isEmpty ? 1.2 : 0)
             layer?.backgroundColor = base.cgColor
             for (glow, color) in zip(glows, colors) {
-                glow.colors = [color.withAlphaComponent(0.85).cgColor,
-                               color.withAlphaComponent(0.35).cgColor,
+                glow.colors = [color.withAlphaComponent(glowAlpha).cgColor,
+                               color.withAlphaComponent(glowAlpha * 0.4).cgColor,
                                color.withAlphaComponent(0).cgColor]
             }
             studLayer.opacity = studs ? 1 : 0
@@ -305,6 +412,7 @@ struct ChunkyButtonStyle: ButtonStyle {
         let color: Color
         let size: Size
         let glassy: Bool
+        private var textColor: Color { glassy || color.luminance <= 0.5 ? .white : Color(white: 0.08) }
         @State private var hovering = false
         @State private var shine: CGFloat = -1.3
         @Environment(\.isEnabled) private var isEnabled
@@ -327,9 +435,9 @@ struct ChunkyButtonStyle: ButtonStyle {
 
         private var font: Font {
             switch size {
-            case .large: return .system(size: 20, weight: .heavy, design: .rounded)
-            case .regular: return .system(size: 14.5, weight: .bold, design: .rounded)
-            case .small: return .system(size: 12.5, weight: .bold, design: .rounded)
+            case .large: return .ui(20, .heavy)
+            case .regular: return .ui(14.5, .bold)
+            case .small: return .ui(12.5, .bold)
             }
         }
 
@@ -355,8 +463,8 @@ struct ChunkyButtonStyle: ButtonStyle {
 
             configuration.label
                 .font(font)
-                .foregroundStyle(.white.opacity(active ? 1 : 0.6))
-                .shadow(color: .black.opacity(glassy ? 0 : 0.22), radius: 0, y: 1)
+                .foregroundStyle(textColor.opacity(active ? 1 : 0.6))
+                .shadow(color: .black.opacity(glassy || textColor != .white ? 0 : 0.22), radius: 0, y: 1)
                 .padding(insets)
                 .offset(y: sink)
                 .background {
@@ -421,7 +529,7 @@ struct StatusPill: View {
             PulseDot(color: state.color, pulsing: state.pulses && !reduceMotion)
                 .frame(width: 8, height: 8)
             Text(text ?? state.label)
-                .font(.system(size: 12.5, weight: .bold, design: .rounded))
+                .font(.ui(12.5, .bold))
                 .foregroundStyle(.white.opacity(0.92))
                 .contentTransition(.opacity)
         }
@@ -475,8 +583,8 @@ struct PageHeader<Trailing: View>: View {
     var body: some View {
         HStack(alignment: .bottom, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
-                Text(title).font(.system(size: 34, weight: .heavy, design: .rounded))
-                Text(subtitle).font(.system(size: 14)).foregroundStyle(.white.opacity(0.65))
+                Text(title).font(.ui(34, .heavy))
+                Text(subtitle).font(.ui(14)).foregroundStyle(.white.opacity(0.65))
             }
             Spacer(minLength: 0)
             trailing
@@ -509,10 +617,10 @@ struct SegmentedTabs<Value: Hashable>: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: item.symbol).font(.system(size: 12, weight: .bold))
-                        Text(item.label).font(.system(size: 13, weight: .bold, design: .rounded))
+                        Text(item.label).font(.ui(13, .bold))
                     }
                     .fixedSize()
-                    .foregroundStyle(selected ? .white : .white.opacity(0.65))
+                    .foregroundStyle(selected ? (accent.luminance > 0.5 ? Color(white: 0.08) : .white) : .white.opacity(0.65))
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
                     .background {
@@ -542,10 +650,10 @@ struct SectionLabel: View {
 
     var body: some View {
         HStack {
-            Text(text).font(.system(size: 18, weight: .heavy, design: .rounded))
+            Text(text).font(.ui(18, .heavy))
             Spacer()
             if let trailing {
-                Text(trailing).font(.system(size: 12)).foregroundStyle(.white.opacity(0.55))
+                Text(trailing).font(.ui(12)).foregroundStyle(.white.opacity(0.55))
             }
         }
     }
@@ -560,9 +668,9 @@ struct SettingRow<Control: View>: View {
     var body: some View {
         HStack(alignment: .center, spacing: 16) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.system(size: 14, weight: .semibold))
+                Text(title).font(.ui(14, .semibold))
                 if let detail {
-                    Text(detail).font(.system(size: 12)).foregroundStyle(.white.opacity(0.55))
+                    Text(detail).font(.ui(12)).foregroundStyle(.white.opacity(0.55))
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -605,10 +713,10 @@ struct ChipPicker<Value: Hashable>: View {
                     withAnimation(.bounce) { selection = option.value }
                 } label: {
                     Text(option.label)
-                        .font(.system(size: 12.5, weight: .bold, design: .rounded))
+                        .font(.ui(12.5, .bold))
                         .lineLimit(1)
                         .fixedSize()
-                        .foregroundStyle(selected ? .white : .white.opacity(0.7))
+                        .foregroundStyle(selected ? (accent.luminance > 0.5 ? Color(white: 0.08) : .white) : .white.opacity(0.7))
                         .padding(.horizontal, 11)
                         .padding(.vertical, 6)
                         .background {
@@ -766,7 +874,7 @@ struct ErrorBanner: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-            Text(message).font(.system(size: 13)).textSelection(.enabled)
+            Text(message).font(.ui(13)).textSelection(.enabled)
             Spacer(minLength: 0)
             if let dismiss {
                 Button(action: dismiss) { Image(systemName: "xmark").font(.system(size: 11, weight: .bold)) }
