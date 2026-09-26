@@ -56,6 +56,12 @@ namespace AppleLabs
                     var encoder = new PngBitmapEncoder();
                     encoder.Frames.Add(BitmapFrame.Create(bitmap));
                     using (var file = File.Create(Path.Combine(folder, $"{++count:00}-{name}.png"))) encoder.Save(file);
+                    // A small copy for quick previews.
+                    var small = new TransformedBitmap(bitmap, new ScaleTransform(460.0 / w, 460.0 / w));
+                    var jpeg = new JpegBitmapEncoder { QualityLevel = 45 };
+                    jpeg.Frames.Add(BitmapFrame.Create(small));
+                    Directory.CreateDirectory(Path.Combine(folder, "small"));
+                    using (var file = File.Create(Path.Combine(folder, "small", $"{count:00}-{name}.jpg"))) jpeg.Save(file);
                     Console.WriteLine($"ok   {name}");
                 }
                 catch (Exception e)

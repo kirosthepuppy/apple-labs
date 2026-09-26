@@ -58,15 +58,21 @@ namespace AppleLabs
             double main = 0, cross = 0;
             var visible = 0;
             var vertical = Orientation == Orientation.Vertical;
-            var childAvailable = vertical ? new Size(available.Width, double.PositiveInfinity) : new Size(double.PositiveInfinity, available.Height);
+            // In a row, each child gets the width left after the ones before it, so
+            // text after an icon wraps inside the row instead of running past it.
+            var remaining = available.Width;
             foreach (UIElement child in InternalChildren)
             {
+                var childAvailable = vertical
+                    ? new Size(available.Width, double.PositiveInfinity)
+                    : new Size(double.IsInfinity(remaining) ? double.PositiveInfinity : Math.Max(0, remaining), available.Height);
                 child.Measure(childAvailable);
                 if (child.Visibility == Visibility.Collapsed) continue;
                 visible++;
                 var d = child.DesiredSize;
                 main += vertical ? d.Height : d.Width;
                 cross = Math.Max(cross, vertical ? d.Width : d.Height);
+                if (!vertical) remaining -= d.Width + Spacing;
             }
             if (visible > 1) main += Spacing * (visible - 1);
             return vertical ? new Size(cross, main) : new Size(main, cross);

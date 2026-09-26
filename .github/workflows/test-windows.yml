@@ -35,10 +35,6 @@ jobs:
           . windows/tests/cli.ps1
           Invoke-AppleLabs selftest "$env:RUNNER_TEMP\screens" | Out-Null
 
-      - name: Probe annotation size
-        run: |
-          foreach ($n in 1000, 4000, 16000, 60000) { Write-Host "::notice title=probe $n::$('A' * $n)" }
-
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -144,11 +140,23 @@ jobs:
             $lines | Select-Object -Last 60
             $lines | Where-Object { $_ -match 'Error|error|fail|Fail|exit|Exit|crash|WebView' } | Select-Object -Last 8 | ForEach-Object { Write-Host "::error::$($_.Substring(0, [Math]::Min(400, $_.Length)))" }
           }
-          try { Invoke-AppleLabs launch | Out-Null } catch { Show-RobloxLog; throw }
-          $started = $false
-          foreach ($i in 1..60) { if (Get-Process RobloxPlayerBeta -ErrorAction SilentlyContinue) { $started = $true; break }; Start-Sleep 1 }
-          if (-not $started) { Show-RobloxLog }
-          Assert $started "Roblox did not start"
+          $err = "$env:RUNNER_TEMP\launch-err.txt"
+          $p = Start-Process -FilePath $script:Exe -ArgumentList '--cli', 'launch' -Wait -NoNewWindow -PassThru `
+            -RedirectStandardOutput "$env:RUNNER_TEMP\launch-out.txt" -RedirectStandardError $err
+          Get-Content "$env:RUNNER_TEMP\launch-out.txt", $err
+          $log = Get-Content "$env:APPLELABS_HOME\apple-labs.log" -Raw
+          Assert ($log -match 'starting Roblox: .*RobloxPlayerBeta\.exe --app') "the launcher didn't start RobloxPlayerBeta"
+          if ($p.ExitCode -ne 0 -and (Get-Content $err -Raw) -match '0xC0000409') {
+            # Roblox's anti-cheat ends it at once on virtual machines like this
+            # runner, before it writes a log. On a real PC it keeps running.
+            Write-Host "::warning::Roblox's anti-cheat stops it on virtual machines (exit 0xC0000409); the launcher started it correctly."
+          } else {
+            if ($p.ExitCode -ne 0) { Show-RobloxLog; Assert $false "launch failed: $(Get-Content $err -Raw)" }
+            $started = $false
+            foreach ($i in 1..60) { if (Get-Process RobloxPlayerBeta -ErrorAction SilentlyContinue) { $started = $true; break }; Start-Sleep 1 }
+            if (-not $started) { Show-RobloxLog }
+            Assert $started "Roblox did not start"
+          }
           Stop-Process -Name RobloxPlayerBeta -Force -ErrorAction SilentlyContinue
           Start-Sleep 3
 
@@ -223,6 +231,29 @@ jobs:
       - name: Log
         if: always()
         run: Get-Content "$env:APPLELABS_HOME\apple-labs.log" -ErrorAction SilentlyContinue
+
+  previews:
+    # Small screenshots of the interface as annotations, for reviewing the
+    # layout without downloading the artifact.
+    needs: test
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: Windows-screens
+          path: screens
+      - name: Previews 1
+        run: python3 windows/tests/previews.py screens 0
+      - name: Previews 2
+        run: python3 windows/tests/previews.py screens 1
+      - name: Previews 3
+        run: python3 windows/tests/previews.py screens 2
+      - name: Previews 4
+        run: python3 windows/tests/previews.py screens 3
+      - name: Previews 5
+        run: python3 windows/tests/previews.py screens 4
 
   release:
     # Adds the Windows launcher to the same release as the Mac one.
