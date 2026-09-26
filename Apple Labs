@@ -30,7 +30,7 @@ HANDLER_APP="$HOME/Applications/Apple Labs.app"
 # What the launcher app was called before 1.5; moved to the new name on register.
 LEGACY_HANDLER_APP="$HOME/Applications/Roblox Bootstrapper.app"
 HANDLER_BUNDLE_ID="com.robloxbootstrapper.handler"
-LAUNCHER_ZIP_URL="https://github.com/kirosthepuppy/macOS-bootstrapper/releases/latest/download/Apple-Labs.zip"
+LAUNCHER_ZIP_URL="https://github.com/kirosthepuppy/apple-labs/releases/latest/download/Apple-Labs.zip"
 
 # Set by the launcher app: it shows its own progress and notifications.
 GUI_MODE="${ROBLOX_BOOTSTRAPPER_GUI:-}"

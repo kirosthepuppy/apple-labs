@@ -472,7 +472,7 @@ private struct HelpTab: View {
                 Button { NSWorkspace.shared.open(model.logURL) } label: { Label("Log", systemImage: "doc.text") }
                     .buttonStyle(.chunkyGlass(size: .small))
                 Button {
-                    NSWorkspace.shared.open(URL(string: "https://github.com/kirosthepuppy/macOS-bootstrapper/issues")!)
+                    NSWorkspace.shared.open(URL(string: "https://github.com/kirosthepuppy/apple-labs/issues")!)
                 } label: { Label("Report a Problem", systemImage: "exclamationmark.bubble") }
                     .buttonStyle(.chunky(model.theme.accent, size: .small))
             }

@@ -25,7 +25,7 @@ optional native SwiftUI launcher app sits on top of it.
 ```sh
 mkdir -p ~/.local/bin
 curl -fsSL -o ~/.local/bin/roblox-bootstrapper \
-  https://raw.githubusercontent.com/kirosthepuppy/macOS-bootstrapper/main/Apple%20Labs
+  https://raw.githubusercontent.com/kirosthepuppy/apple-labs/main/Apple%20Labs
 chmod +x ~/.local/bin/roblox-bootstrapper
 
 roblox-bootstrapper install     # download and install Roblox
@@ -75,7 +75,7 @@ progress window, updates and applies your mods and flags, then hands the game
 link to Roblox and quits.
 
 `register` downloads the app from this repo's
-[releases](https://github.com/kirosthepuppy/macOS-bootstrapper/releases). To build
+[releases](https://github.com/kirosthepuppy/apple-labs/releases). To build
 it yourself (needs the Xcode command line tools):
 
 ```sh
