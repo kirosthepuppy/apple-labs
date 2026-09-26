@@ -259,10 +259,12 @@ jobs:
         run: |
           version="$(sed -n 's/^VERSION="\(.*\)"/\1/p' "Apple Labs")"
           tag="v$version"
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" Apple-Labs.zip --clobber
-          else
-            gh release create "$tag" Apple-Labs.zip --target "$GITHUB_SHA" \
-              --title "Apple Labs $version" \
-              --notes "Launcher app for macOS (Apple silicon and Intel). Install it with \`roblox-bootstrapper register\`, or unzip it into ~/Applications."
-          fi
+          # The Windows workflow may be creating the same release at the same moment.
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --target "$GITHUB_SHA" \
+            --title "Apple Labs $version" \
+            --notes "Apple Labs for macOS (Apple-Labs.zip, Apple silicon and Intel) and Windows (Apple-Labs-Windows.zip)." || true
+          for i in 1 2 3 4 5; do
+            gh release upload "$tag" Apple-Labs.zip --clobber && exit 0
+            sleep 5
+          done
+          exit 1

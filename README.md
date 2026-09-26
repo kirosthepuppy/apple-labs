@@ -1,6 +1,6 @@
 # Apple Labs
 
-A bootstrapper and launcher for Roblox on macOS, in the spirit of Bloxstrap
+A bootstrapper and launcher for Roblox on macOS and Windows, in the spirit of Bloxstrap
 and Fishstrap. The core is a single, dependency-free bash script that uses only
 tools that ship with macOS (`curl`, `ditto`, `osascript`, `PlistBuddy`); an
 optional native SwiftUI launcher app sits on top of it.
@@ -84,6 +84,33 @@ app/build.sh --install
 
 Without the app, `register --applet` installs a tiny AppleScript link handler
 instead.
+
+## Windows
+
+Apple Labs also runs on Windows 10 and 11: the same launcher (sidebar, themes
+including Glass and Custom with a background picture, Play card, recent games,
+graphics presets and FastFlags, cursor/font/death-sound mods, account
+switching) as a single `Apple Labs.exe`. It needs nothing else installed.
+
+1. Download `Apple-Labs-Windows.zip` from the
+   [releases](https://github.com/kirosthepuppy/apple-labs/releases) and unzip it.
+2. Run `Apple Labs.exe`. It copies itself to `%LocalAppData%\AppleLabs`, adds
+   Start menu and desktop shortcuts and an entry in Settings › Apps, and takes
+   over Play buttons on roblox.com (turn that off in Launcher › General).
+   Windows SmartScreen may warn that it doesn't recognise the app: choose
+   **More info**, then **Run anyway**.
+
+Roblox itself is downloaded straight from Roblox's servers into
+`%LocalAppData%\AppleLabs\Versions`, with your FastFlags and mods written in
+before every launch. Uninstall from Settings › Apps or Launcher › General.
+
+To build it yourself (on Windows, macOS or Linux, with the .NET SDK):
+
+```sh
+dotnet build windows/AppleLabs.csproj -c Release
+```
+
+`AppleLabs.exe --cli help` lists commands for scripting it.
 
 ## Usage
 

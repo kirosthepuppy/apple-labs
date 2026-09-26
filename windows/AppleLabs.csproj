@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Apple Labs for Windows: a single exe on .NET Framework 4.8, which ships with
+    Windows 10 and 11, so there is nothing else to install.
+
+      dotnet build windows/AppleLabs.csproj -c Release
+
+    Builds on Windows, macOS or Linux (EnableWindowsTargeting); it only runs on
+    Windows. The output is AppleLabs.exe; releases ship it as "Apple Labs.exe".
+  -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>AppleLabs</AssemblyName>
+    <RootNamespace>AppleLabs</RootNamespace>
+    <ApplicationIcon>Assets\AppleLabs.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>1.5.0</Version>
+    <Product>Apple Labs</Product>
+    <Description>Apple Labs: a Roblox launcher</Description>
+    <Copyright>Apple Labs contributors</Copyright>
+    <Deterministic>true</Deterministic>
+    <DebugType>embedded</DebugType>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <AutoGenerateBindingRedirects>false</AutoGenerateBindingRedirects>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+    <Reference Include="System.Net.Http" />
+    <Reference Include="System.Security" />
+    <Reference Include="System.Windows.Forms" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Page Remove="Src\App.xaml" />
+    <ApplicationDefinition Include="Src\App.xaml" />
+    <Resource Include="Assets\Logo.png" />
+  </ItemGroup>
+
+</Project>

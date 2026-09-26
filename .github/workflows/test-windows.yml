@@ -1,0 +1,210 @@
+name: Test on Windows
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      # Keep the launcher's data and Roblox's sign-in files inside the workspace,
+      # and stop the exe from installing itself into the runner's profile.
+      APPLELABS_HOME: ${{ github.workspace }}\.applelabs
+      ROBLOX_LOCAL_DIR: ${{ github.workspace }}\.roblox
+      APPLELABS_PORTABLE: "1"
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build
+        run: |
+          $version = (Select-String -Path 'Apple Labs' -Pattern '^VERSION="(.*)"').Matches[0].Groups[1].Value
+          "VERSION=$version" >> $env:GITHUB_ENV
+          dotnet build windows/AppleLabs.csproj -c Release -o out "-p:Version=$version"
+          if ($LASTEXITCODE -ne 0) { throw "build failed" }
+          . windows/tests/cli.ps1
+          Assert ((Invoke-AppleLabs version).Trim() -eq $version) "the exe reports the wrong version"
+
+      - name: Open every page (self-test)
+        run: |
+          . windows/tests/cli.ps1
+          Invoke-AppleLabs selftest "$env:RUNNER_TEMP\screens" | Out-Null
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Windows-screens
+          path: ${{ runner.temp }}\screens
+          if-no-files-found: ignore
+
+      - name: Status (before install)
+        run: |
+          . windows/tests/cli.ps1
+          $s = Get-Status
+          Assert ($null -eq $s.installed) "Roblox should not be installed yet"
+          Assert ($s.latest) "could not fetch the latest version"
+
+      - name: Install Roblox
+        run: |
+          . windows/tests/cli.ps1
+          Invoke-AppleLabs install | Out-Null
+          $s = Get-Status
+          Assert ($s.installed -eq $s.latest) "installed $($s.installed), latest $($s.latest)"
+          Assert (Test-Path (Join-Path $s.installPath 'RobloxPlayerBeta.exe')) "RobloxPlayerBeta.exe is missing"
+          Assert (Test-Path (Join-Path $s.installPath 'AppSettings.xml')) "AppSettings.xml is missing"
+          Assert (Test-Path (Join-Path $s.installPath 'content\sounds\ouch.ogg')) "content is missing"
+          Assert ((Invoke-AppleLabs install) -match 'up to date') "a second install should be a no-op"
+
+      - name: FastFlags
+        run: |
+          . windows/tests/cli.ps1
+          Invoke-AppleLabs fflags set DFIntTaskSchedulerTargetFps 144 | Out-Null
+          Invoke-AppleLabs fflags set FFlagDebugSkyGray true | Out-Null
+          $s = Get-Status
+          $applied = Get-Content (Join-Path $s.installPath 'ClientSettings\ClientAppSettings.json') -Raw | ConvertFrom-Json
+          Assert ($applied.DFIntTaskSchedulerTargetFps -eq 144) "flag value not applied"
+          Assert ($applied.FFlagDebugSkyGray -eq $true) "bool flag not applied"
+          '{ "FIntImported": 7 }' | Set-Content "$env:RUNNER_TEMP\import.json"
+          Invoke-AppleLabs fflags import "$env:RUNNER_TEMP\import.json" | Out-Null
+          Assert ((Invoke-AppleLabs fflags list) -match 'FIntImported = 7') "import failed"
+          Invoke-AppleLabs fflags unset FIntImported | Out-Null
+          Assert (-not ((Invoke-AppleLabs fflags list) -match 'FIntImported')) "unset failed"
+
+      - name: Mods are applied and removed cleanly
+        run: |
+          . windows/tests/cli.ps1
+          $s = Get-Status
+          $sound = Join-Path $s.installPath 'content\sounds\ouch.ogg'
+          $original = (Get-FileHash $sound).Hash
+          $mods = (Invoke-AppleLabs mods path).Trim()
+          New-Item -ItemType Directory -Force "$mods\content\sounds", "$mods\content\fonts" | Out-Null
+          Copy-Item (Join-Path $s.installPath 'content\sounds\oof.ogg') "$mods\content\sounds\ouch.ogg"
+          Copy-Item "$env:WINDIR\Fonts\arial.ttf" "$mods\content\fonts\CustomFont.ttf"
+          Invoke-AppleLabs mods apply | Out-Null
+          Assert ((Get-FileHash $sound).Hash -eq (Get-FileHash "$mods\content\sounds\ouch.ogg").Hash) "death sound mod not applied"
+          $family = Get-ChildItem (Join-Path $s.installPath 'content\fonts\families') -Filter *.json | Select-Object -First 1
+          Assert ((Get-Content $family.FullName -Raw) -match 'rbxasset://fonts/CustomFont.ttf') "custom font not wired into $($family.Name)"
+          Invoke-AppleLabs mods clear | Out-Null
+          Assert ((Get-FileHash $sound).Hash -eq $original) "original death sound not restored"
+          Assert (-not ((Get-Content $family.FullName -Raw) -match 'CustomFont')) "font families not restored"
+
+      - name: Website links
+        run: |
+          . windows/tests/cli.ps1
+          Invoke-AppleLabs register | Out-Null
+          $command = (Get-ItemProperty 'HKCU:\Software\Classes\roblox-player\shell\open\command').'(default)'
+          Assert ($command -like '*AppleLabs.exe*') "roblox-player links not registered: $command"
+          Assert ((Get-Status).linkHandler) "status doesn't see the link handler"
+
+      - name: Account switching
+        shell: powershell
+        run: |
+          . windows/tests/cli.ps1
+          Add-Type -AssemblyName System.Security
+          $storage = "$env:ROBLOX_LOCAL_DIR\LocalStorage"
+          New-Item -ItemType Directory -Force $storage | Out-Null
+          function SignIn($id, $name, $cookie) {
+            $bytes = [Text.Encoding]::UTF8.GetBytes("# Netscape HTTP Cookie File`n.roblox.com`tTRUE`t/`tTRUE`t0`t.ROBLOSECURITY`t$cookie")
+            $sealed = [Security.Cryptography.ProtectedData]::Protect($bytes, $null, 'CurrentUser')
+            @{ CookiesVersion = '1'; CookiesData = [Convert]::ToBase64String($sealed) } | ConvertTo-Json | Set-Content "$storage\RobloxCookies.dat"
+            @{ UserId = "$id"; Username = $name.ToLower(); DisplayName = $name } | ConvertTo-Json | Set-Content "$storage\appStorage.json"
+          }
+          SignIn 111 'Alpha' 'alpha-session'
+          Invoke-AppleLabs accounts save | Out-Null
+          $alphaCookies = (Get-FileHash "$storage\RobloxCookies.dat").Hash
+          SignIn 222 'Beta' 'beta-session'
+          Invoke-AppleLabs accounts save | Out-Null
+          $list = (Invoke-AppleLabs accounts list --json) | ConvertFrom-Json
+          Assert (@($list.accounts).Count -eq 2) "expected two saved accounts"
+          Assert ($list.current.userId -eq '222') "Beta should be signed in"
+          Invoke-AppleLabs accounts use alpha | Out-Null
+          Assert ((Get-FileHash "$storage\RobloxCookies.dat").Hash -eq $alphaCookies) "Alpha's sign-in was not swapped in"
+          $list = (Invoke-AppleLabs accounts list --json) | ConvertFrom-Json
+          Assert ($list.current.userId -eq '111') "Alpha should be signed in after switching"
+          Invoke-AppleLabs accounts remove beta | Out-Null
+          $list = (Invoke-AppleLabs accounts list --json) | ConvertFrom-Json
+          Assert (@($list.accounts).Count -eq 1) "Beta was not removed"
+
+      - name: Launch Roblox
+        run: |
+          . windows/tests/cli.ps1
+          Invoke-AppleLabs launch | Out-Null
+          $started = $false
+          foreach ($i in 1..60) { if (Get-Process RobloxPlayerBeta -ErrorAction SilentlyContinue) { $started = $true; break }; Start-Sleep 1 }
+          Assert $started "Roblox did not start"
+          Stop-Process -Name RobloxPlayerBeta -Force -ErrorAction SilentlyContinue
+          Start-Sleep 3
+
+      - name: Open a roblox:// link through the launcher
+        run: |
+          . windows/tests/cli.ps1
+          $log = "$env:APPLELABS_HOME\apple-labs.log"
+          $before = @(Select-String -Path $log -Pattern 'launch url' -ErrorAction SilentlyContinue).Count
+          Start-Process 'roblox://experiences/start?placeId=1818'
+          $after = $before
+          foreach ($i in 1..60) {
+            $after = @(Select-String -Path $log -Pattern 'launch url' -ErrorAction SilentlyContinue).Count
+            if ($after -gt $before) { break }
+            Start-Sleep 1
+          }
+          Get-Content $log -Tail 20
+          Assert ($after -gt $before) "the link didn't reach the launcher"
+          # The link window closes by itself once Roblox is on its way.
+          $closed = $false
+          foreach ($i in 1..30) { if (-not (Get-Process AppleLabs -ErrorAction SilentlyContinue)) { $closed = $true; break }; Start-Sleep 1 }
+          Stop-Process -Name RobloxPlayerBeta -Force -ErrorAction SilentlyContinue
+          Assert $closed "the link window didn't close"
+
+      - name: Hand links back
+        run: |
+          . windows/tests/cli.ps1
+          Invoke-AppleLabs unregister | Out-Null
+          Assert (-not (Get-Status).linkHandler) "links still point at the launcher"
+
+      - name: Package
+        run: |
+          New-Item -ItemType Directory -Force package | Out-Null
+          Copy-Item out\AppleLabs.exe 'package\Apple Labs.exe'
+          Compress-Archive -Path 'package\Apple Labs.exe' -DestinationPath Apple-Labs-Windows.zip -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Apple-Labs-Windows
+          path: Apple-Labs-Windows.zip
+
+      - name: Log
+        if: always()
+        run: Get-Content "$env:APPLELABS_HOME\apple-labs.log" -ErrorAction SilentlyContinue
+
+  release:
+    # Adds the Windows launcher to the same release as the Mac one.
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: Apple-Labs-Windows
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(sed -n 's/^VERSION="\(.*\)"/\1/p' "Apple Labs")"
+          tag="v$version"
+          # The Mac workflow may be creating the same release at the same moment.
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --target "$GITHUB_SHA" \
+            --title "Apple Labs $version" \
+            --notes "Apple Labs for macOS (Apple-Labs.zip) and Windows (Apple-Labs-Windows.zip)." || true
+          for i in 1 2 3 4 5; do
+            gh release upload "$tag" Apple-Labs-Windows.zip --clobber && exit 0
+            sleep 5
+          done
+          exit 1
