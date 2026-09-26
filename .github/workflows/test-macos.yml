@@ -18,7 +18,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     env:
-      ROBLOX_INSTALL_DIR: ${{ github.workspace }}/apps
       BS: ./roblox-bootstrapper
     defaults:
       run:
@@ -31,13 +30,23 @@ jobs:
           sw_vers
           uname -m
           /bin/bash --version | head -1
+          swiftc --version
           head -1 roblox-bootstrapper
+
+      - name: Configure
+        run: |
+          # Saved to the config file so the launcher app (started by macOS,
+          # without this job's environment) uses the same location.
+          $BS config set INSTALL_DIR "$GITHUB_WORKSPACE/apps"
+          $BS config show | grep -q "INSTALL_DIR=$GITHUB_WORKSPACE/apps"
 
       - name: Status (before install)
         run: |
           $BS status | tee status.txt
           grep -q "Architecture   ${{ matrix.arch }}" status.txt
           grep -q "Installed      no" status.txt
+          $BS status --json | tee status.json
+          osascript -l JavaScript -e 'function run(a) { var s = JSON.parse(a[0]); if (s.installed !== null || !s.latest) throw new Error("bad status"); return "ok"; }' "$(cat status.json)"
 
       - name: FastFlags via osascript
         run: |
@@ -58,7 +67,7 @@ jobs:
       - name: Install
         run: |
           $BS install
-          APP="$ROBLOX_INSTALL_DIR/Roblox.app"
+          APP="$GITHUB_WORKSPACE/apps/Roblox.app"
           test -x "$APP/Contents/MacOS/RobloxPlayer"
           lipo -archs "$APP/Contents/MacOS/RobloxPlayer"
           lipo -archs "$APP/Contents/MacOS/RobloxPlayer" | grep -q "${{ matrix.arch }}"
@@ -76,6 +85,32 @@ jobs:
           grep -q "up to date" again.txt
           $BS status
 
+      - name: Mods
+        run: |
+          RES="$GITHUB_WORKSPACE/apps/Roblox.app/Contents/Resources"
+          MODS="$($BS mods path)"
+          orig_sound="$(md5 -q "$RES/content/sounds/ouch.ogg")"
+          orig_font="$(md5 -q "$RES/content/fonts/families/Arimo.json")"
+          mkdir -p "$MODS/content/sounds" "$MODS/content/fonts"
+          cp "$RES/content/sounds/oof.ogg" "$MODS/content/sounds/ouch.ogg"
+          cp /System/Library/Fonts/Supplemental/Arial.ttf "$MODS/content/fonts/CustomFont.ttf"
+          $BS mods apply
+          cmp "$RES/content/sounds/ouch.ogg" "$RES/content/sounds/oof.ogg"
+          test -f "$RES/content/fonts/CustomFont.ttf"
+          ! grep '"assetId"' "$RES/content/fonts/families/Arimo.json" | grep -v CustomFont.ttf
+          $BS mods list
+          # Removing mods restores Roblox's own files.
+          $BS mods clear
+          [ "$(md5 -q "$RES/content/sounds/ouch.ogg")" = "$orig_sound" ]
+          [ "$(md5 -q "$RES/content/fonts/families/Arimo.json")" = "$orig_font" ]
+          test ! -f "$RES/content/fonts/CustomFont.ttf"
+          # Mods survive a reinstall.
+          mkdir -p "$MODS/content/sounds"
+          cp "$RES/content/sounds/oof.ogg" "$MODS/content/sounds/ouch.ogg"
+          $BS install --force
+          cmp "$RES/content/sounds/ouch.ogg" "$RES/content/sounds/oof.ogg"
+          $BS mods clear
+
       - name: Launch
         run: |
           $BS launch
@@ -84,10 +119,28 @@ jobs:
           pkill -x RobloxPlayer || true
           sleep 3
 
-      - name: Register link handler
+      - name: Build the launcher app
         run: |
+          app/build.sh --zip
+          APP="app/build/Roblox Bootstrapper.app"
+          lipo -archs "$APP/Contents/MacOS/RobloxBootstrapper" | grep -q arm64
+          lipo -archs "$APP/Contents/MacOS/RobloxBootstrapper" | grep -q x86_64
+          codesign --verify --strict "$APP"
+          cmp "$APP/Contents/Resources/roblox-bootstrapper" roblox-bootstrapper
+          test -f app/build/Roblox-Bootstrapper.zip
+
+      - uses: actions/upload-artifact@v4
+        if: matrix.arch == 'arm64'
+        with:
+          name: Roblox-Bootstrapper
+          path: app/build/Roblox-Bootstrapper.zip
+
+      - name: Register the launcher app
+        run: |
+          mkdir -p "$HOME/Applications"
+          ditto "app/build/Roblox Bootstrapper.app" "$HOME/Applications/Roblox Bootstrapper.app"
           $BS register
-          test -d "$HOME/Applications/Roblox Bootstrapper.app"
+          test -x "$HOME/Applications/Roblox Bootstrapper.app/Contents/MacOS/RobloxBootstrapper"
           handler() {
             osascript -l JavaScript -e 'ObjC.import("CoreServices"); function run(a) { return ObjC.unwrap(ObjC.castRefToObject($.LSCopyDefaultHandlerForURLScheme($(a[0])))); }' "$1"
           }
@@ -96,12 +149,12 @@ jobs:
           [ "$(handler roblox)" = "com.robloxbootstrapper.handler" ]
           $BS status | grep -q "Link handler   registered"
 
-      - name: Open a roblox:// link through the handler
+      - name: Open a roblox:// link through the launcher app
         run: |
           LOG="$HOME/Library/Application Support/RobloxBootstrapper/bootstrapper.log"
           before=$(grep -c "launch url" "$LOG" || true)
           open "roblox://experiences/start?placeId=1818"
-          for i in $(seq 1 45); do
+          for i in $(seq 1 60); do
             after=$(grep -c "launch url" "$LOG" || true)
             [ "$after" -gt "$before" ] && break
             sleep 1
@@ -110,15 +163,55 @@ jobs:
           [ "$after" -gt "$before" ]
           for i in $(seq 1 30); do pgrep -x RobloxPlayer && break; sleep 1; done
           pkill -x RobloxPlayer || true
+          # The launcher quits by itself after handing the link to Roblox.
+          for i in $(seq 1 20); do pgrep -f "Roblox Bootstrapper.app/Contents/MacOS" || break; sleep 1; done
+          ! pgrep -f "Roblox Bootstrapper.app/Contents/MacOS"
           sleep 3
 
-      - name: Unregister and uninstall
+      - name: Applet fallback
         run: |
           $BS unregister
+          # The launcher app is kept; only link handling is handed back.
+          test -d "$HOME/Applications/Roblox Bootstrapper.app"
+          rm -rf "$HOME/Applications/Roblox Bootstrapper.app"
+          $BS register --applet
+          test -f "$HOME/Applications/Roblox Bootstrapper.app/Contents/MacOS/applet"
+          $BS unregister
           test ! -d "$HOME/Applications/Roblox Bootstrapper.app"
+
+      - name: Uninstall
+        run: |
+          $BS register --applet
           $BS uninstall --purge
-          test ! -d "$ROBLOX_INSTALL_DIR/Roblox.app"
+          test ! -d "$HOME/Applications/Roblox Bootstrapper.app"
+          test ! -d "$GITHUB_WORKSPACE/apps/Roblox.app"
 
       - name: Log
         if: always()
         run: cat "$HOME/Library/Application Support/RobloxBootstrapper/bootstrapper.log" || true
+
+  release:
+    # Publish the launcher so `roblox-bootstrapper register` can download it.
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: Roblox-Bootstrapper
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(sed -n 's/^VERSION="\(.*\)"/\1/p' roblox-bootstrapper)"
+          tag="v$version"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" Roblox-Bootstrapper.zip --clobber
+          else
+            gh release create "$tag" Roblox-Bootstrapper.zip --target "$GITHUB_SHA" \
+              --title "Roblox Bootstrapper $version" \
+              --notes "Launcher app for macOS (Apple silicon and Intel). Install it with \`roblox-bootstrapper register\`, or unzip it into ~/Applications."
+          fi

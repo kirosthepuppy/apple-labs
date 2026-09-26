@@ -1,0 +1,55 @@
+#!/bin/bash
+#
+# Builds "Roblox Bootstrapper.app" (a universal SwiftUI launcher) into app/build.
+#
+#   app/build.sh            build only
+#   app/build.sh --install  build, install to ~/Applications and register it
+#                           as the handler for roblox:// links
+#   app/build.sh --zip      build and zip it for a GitHub release
+#
+# Needs the Xcode command line tools (swiftc).
+
+set -euo pipefail
+
+here="$(cd "$(dirname "$0")" && pwd)"
+root="$(dirname "$here")"
+out="$here/build"
+app="$out/Roblox Bootstrapper.app"
+version="$(sed -n 's/^VERSION="\(.*\)"/\1/p' "$root/roblox-bootstrapper")"
+
+rm -rf "$out"
+mkdir -p "$out" "$app/Contents/MacOS" "$app/Contents/Resources"
+
+for arch in arm64 x86_64; do
+  echo "==> Compiling for $arch"
+  swiftc -O -swift-version 5 -parse-as-library \
+    -target "$arch-apple-macos13.0" \
+    -o "$out/RobloxBootstrapper-$arch" \
+    "$here"/Sources/*.swift
+done
+lipo -create -output "$app/Contents/MacOS/RobloxBootstrapper" \
+  "$out/RobloxBootstrapper-arm64" "$out/RobloxBootstrapper-x86_64"
+rm -f "$out"/RobloxBootstrapper-*
+
+sed "s/__VERSION__/$version/g" "$here/Info.plist" > "$app/Contents/Info.plist"
+cp "$root/roblox-bootstrapper" "$app/Contents/Resources/roblox-bootstrapper"
+chmod +x "$app/Contents/Resources/roblox-bootstrapper"
+printf 'APPL????' > "$app/Contents/PkgInfo"
+
+codesign --force --deep --sign - "$app"
+echo "==> Built $app ($version)"
+
+case "${1:-}" in
+  --install)
+    dest="$HOME/Applications/Roblox Bootstrapper.app"
+    mkdir -p "$HOME/Applications"
+    rm -rf "$dest"
+    ditto "$app" "$dest"
+    # register adds Roblox's icon, re-signs, and takes over roblox:// links.
+    "$dest/Contents/Resources/roblox-bootstrapper" register
+    ;;
+  --zip)
+    (cd "$out" && ditto -c -k --keepParent "Roblox Bootstrapper.app" "Roblox-Bootstrapper.zip")
+    echo "==> $out/Roblox-Bootstrapper.zip"
+    ;;
+esac

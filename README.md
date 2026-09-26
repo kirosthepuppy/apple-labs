@@ -1,8 +1,9 @@
 # macOS Roblox Bootstrapper
 
-A small, dependency-free bootstrapper for Roblox on macOS, in the spirit of
-Bloxstrap. It is a single bash script that uses only tools that ship with
-macOS (`curl`, `ditto`, `osascript`, `PlistBuddy`).
+A bootstrapper and launcher for Roblox on macOS, in the spirit of Bloxstrap
+and Fishstrap. The core is a single, dependency-free bash script that uses only
+tools that ship with macOS (`curl`, `ditto`, `osascript`, `PlistBuddy`); an
+optional native SwiftUI launcher app sits on top of it.
 
 - **Installs and updates Roblox** directly from Roblox's CDN, choosing the
   native Apple Silicon or Intel build automatically.
@@ -11,9 +12,12 @@ macOS (`curl`, `ditto`, `osascript`, `PlistBuddy`).
 - **Handles website links.** `register` makes `roblox://` / `roblox-player://`
   links go through the bootstrapper, so joining from the browser also updates
   Roblox and applies your flags first.
-- **A launcher app.** `register` also makes `~/Applications/Roblox Bootstrapper.app`
-  (with the Roblox icon). Open it from Spotlight or Launchpad, or drag it to the
-  Dock, and use it instead of Roblox itself so every launch updates first.
+- **A launcher app.** `register` installs `~/Applications/Roblox Bootstrapper.app`
+  (with the Roblox icon): a window with a Launch button, mods, FastFlags and
+  settings. Keep it in the Dock instead of Roblox so every launch updates first.
+- **Mods.** Classic "oof" death sound, classic or custom mouse cursor, a custom
+  font for all in-game text, and a mods folder for replacing any other file.
+  Mods are re-applied after every update and removed cleanly.
 - **Channels.** Can follow a non-LIVE deployment channel if you have access to one.
 
 ## Install
@@ -33,6 +37,30 @@ If your shell can't find `roblox-bootstrapper`, add `~/.local/bin` to your PATH:
 
 (Or just clone the repo and run `./roblox-bootstrapper`.)
 
+## The launcher app
+
+| Section   | What it does |
+|-----------|--------------|
+| Play      | Launch Roblox (updating first if needed), see the installed and latest version, restart Roblox after changing settings. |
+| Mods      | Death sound (default, classic "oof", or your own file), mouse cursor (default, classic arrow, or your own image), custom font, and the mods folder. |
+| FastFlags | Presets for frame rate limit, MSAA, texture quality, post-processing, grass and sky, plus a full editor with JSON import/export (works with Bloxstrap/Fishstrap exports). |
+| Settings  | Close the launcher once Roblox starts, handle website links, channel, install location, build, reinstall. |
+
+When you click **Play** on the Roblox website, the launcher shows a small
+progress window, updates and applies your mods and flags, then hands the game
+link to Roblox and quits.
+
+`register` downloads the app from this repo's
+[releases](https://github.com/kirosthepuppy/macOS-bootstrapper/releases). To build
+it yourself (needs the Xcode command line tools):
+
+```sh
+app/build.sh --install
+```
+
+Without the app, `register --applet` installs a tiny AppleScript link handler
+instead.
+
 ## Usage
 
 ```
@@ -46,7 +74,10 @@ roblox-bootstrapper fflags unset DFIntTaskSchedulerTargetFps
 roblox-bootstrapper fflags import flags.json
 roblox-bootstrapper fflags edit | clear | apply
 
-roblox-bootstrapper register | unregister
+roblox-bootstrapper mods list | apply | clear | path
+
+roblox-bootstrapper register [--applet] | unregister
+roblox-bootstrapper install-app
 roblox-bootstrapper config set INSTALL_DIR ~/Applications
 roblox-bootstrapper uninstall [--purge]
 ```
@@ -76,7 +107,15 @@ Everything the bootstrapper keeps (settings, `fflags.json`, a log) lives in
    `setup.rbxcdn.com/mac[/arm64]/<version>-RobloxPlayer.zip`, extracts it, and
    swaps it in as `Roblox.app` (the old copy is kept until the swap succeeds).
 3. Writes your flags to `Roblox.app/Contents/MacOS/ClientSettings/ClientAppSettings.json`.
-4. `register` builds a tiny AppleScript app at
-   `~/Applications/Roblox Bootstrapper.app` that forwards links to the script,
-   and makes it the default handler for the Roblox URL schemes. It calls the
-   script by its path, so re-run `register` if you move the script.
+4. Copies everything in `~/Library/Application Support/RobloxBootstrapper/Modifications`
+   over `Roblox.app/Contents/Resources`, backing up each original first so that
+   removing a mod puts Roblox's file back. A font at
+   `Modifications/content/fonts/CustomFont.ttf` (or `.otf`) is also wired into
+   every font family.
+5. `register` installs the launcher app at `~/Applications/Roblox Bootstrapper.app`
+   and makes it the default handler for the Roblox URL schemes. The app carries
+   its own copy of the script, which does all the work. The `--applet` fallback
+   instead calls the script by its path, so re-run `register` if you move it.
+
+Changing files inside `Roblox.app` invalidates its bundle seal (the same is
+true of Bloxstrap-style FastFlags on macOS); Roblox still starts normally.

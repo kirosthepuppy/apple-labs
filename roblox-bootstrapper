@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-VERSION="1.0.0"
+VERSION="1.1.0"
 
 # ---------------------------------------------------------------------------
 # Configuration (all overridable through the environment)
@@ -23,8 +23,15 @@ CONFIG_FILE="$SUPPORT_DIR/config"
 FFLAGS_FILE="$SUPPORT_DIR/fflags.json"
 STATE_FILE="$SUPPORT_DIR/installed-version"
 LOG_FILE="$SUPPORT_DIR/bootstrapper.log"
+MODS_DIR="$SUPPORT_DIR/Modifications"
+MODS_BACKUP_DIR="$SUPPORT_DIR/ModBackups"
+MODS_MANIFEST="$SUPPORT_DIR/mods-applied"
 HANDLER_APP="$HOME/Applications/Roblox Bootstrapper.app"
 HANDLER_BUNDLE_ID="com.robloxbootstrapper.handler"
+LAUNCHER_ZIP_URL="https://github.com/kirosthepuppy/macOS-bootstrapper/releases/latest/download/Roblox-Bootstrapper.zip"
+
+# Set by the launcher app: it shows its own progress and notifications.
+GUI_MODE="${ROBLOX_BOOTSTRAPPER_GUI:-}"
 
 # Persisted settings (see `config` command). Environment wins over the file.
 _env_channel="${ROBLOX_CHANNEL:-}"
@@ -60,6 +67,7 @@ is_macos() { [ "$(uname -s)" = "Darwin" ]; }
 # Show a notification when running headless (e.g. launched from a browser link).
 notify() {
   [ -t 1 ] && return 0
+  [ -n "$GUI_MODE" ] && return 0
   is_macos || return 0
   osascript - "$1" "$2" >/dev/null 2>&1 <<'EOF' || true
 on run argv
@@ -182,6 +190,98 @@ apply_fflags() {
   mv "$dir/ClientAppSettings.json.tmp" "$dir/ClientAppSettings.json"
 }
 
+# ---------------------------------------------------------------------------
+# Mods
+#
+# Files in $MODS_DIR mirror Roblox.app/Contents/Resources (so a mod at
+# Modifications/content/sounds/ouch.ogg replaces the death sound). They are
+# copied in after every update. Originals are backed up so removing a mod
+# restores Roblox's file. A font at content/fonts/CustomFont.ttf (or .otf)
+# is additionally wired into every font family, like Bloxstrap does.
+# ---------------------------------------------------------------------------
+
+apply_mods() {
+  local app res stage font ext rel fam
+  app="$(app_path)"
+  [ -d "$app" ] || return 0
+  res="$app/Contents/Resources"
+  mkdir -p "$MODS_DIR" "$MODS_BACKUP_DIR"
+  touch "$MODS_MANIFEST"
+
+  stage="$(mktemp -d "${TMPDIR:-/tmp}/roblox-mods.XXXXXX")"
+  ditto "$MODS_DIR" "$stage"
+  find "$stage" -name .DS_Store -delete
+
+  font=""
+  for ext in ttf otf; do
+    [ -f "$stage/content/fonts/CustomFont.$ext" ] && font="CustomFont.$ext"
+  done
+  if [ -n "$font" ]; then
+    mkdir -p "$stage/content/fonts/families"
+    for fam in "$res/content/fonts/families/"*.json; do
+      [ -f "$fam" ] || continue
+      rel="content/fonts/families/$(basename "$fam")"
+      # Build from the original file when we have already replaced it.
+      [ -f "$MODS_BACKUP_DIR/$rel" ] && fam="$MODS_BACKUP_DIR/$rel"
+      sed -E "s#(\"assetId\" *: *)\"[^\"]*\"#\1\"rbxasset://fonts/$font\"#g" "$fam" > "$stage/$rel"
+    done
+  fi
+
+  (cd "$stage" && find . -type f | sed 's#^\./##' | LC_ALL=C sort) > "$MODS_MANIFEST.new"
+
+  # Put back files whose mod was removed.
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    grep -qxF "$rel" "$MODS_MANIFEST.new" && continue
+    if [ -f "$MODS_BACKUP_DIR/$rel" ]; then
+      mv "$MODS_BACKUP_DIR/$rel" "$res/$rel"
+    else
+      rm -f "$res/$rel"
+    fi
+  done < "$MODS_MANIFEST"
+
+  # Copy mods in, backing up each original the first time we replace it.
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    if [ -f "$res/$rel" ] && ! grep -qxF "$rel" "$MODS_MANIFEST"; then
+      mkdir -p "$(dirname "$MODS_BACKUP_DIR/$rel")"
+      cp -p "$res/$rel" "$MODS_BACKUP_DIR/$rel"
+    fi
+    mkdir -p "$(dirname "$res/$rel")"
+    cp "$stage/$rel" "$res/$rel"
+  done < "$MODS_MANIFEST.new"
+
+  mv "$MODS_MANIFEST.new" "$MODS_MANIFEST"
+  rm -rf "$stage"
+}
+
+apply_customizations() {
+  apply_fflags
+  apply_mods
+}
+
+cmd_mods() {
+  local sub="${1:-list}"; [ $# -gt 0 ] && shift
+  mkdir -p "$MODS_DIR"
+  case "$sub" in
+    list|ls)
+      (cd "$MODS_DIR" && find . -type f ! -name .DS_Store | sed 's#^\./##' | LC_ALL=C sort) | grep . || echo "(no mods)"
+      return ;;
+    path) printf '%s\n' "$MODS_DIR"; return ;;
+    apply) ;;
+    clear)
+      rm -rf "$MODS_DIR"; mkdir -p "$MODS_DIR"
+      ok "removed all mods" ;;
+    *) die "unknown mods command '$sub' (list, apply, clear, path)" ;;
+  esac
+  if [ -d "$(app_path)" ]; then
+    apply_mods
+    ok "mods applied to Roblox"
+    roblox_running && warn "Roblox is running; restart it for mod changes to take effect"
+  fi
+  return 0
+}
+
 # Turn a CLI value into a JSON value: true/false/numbers stay typed,
 # everything else becomes a string. Roblox accepts both for most flags.
 cmd_fflags() {
@@ -250,6 +350,23 @@ cmd_fflags() {
 # Install / update
 # ---------------------------------------------------------------------------
 
+# Download while printing "@progress <percent>" lines for the launcher app.
+download_with_progress() {
+  local url="$1" out="$2" total size pid
+  total="$(curl -fsSIL --connect-timeout 15 "$url" | tr -d '\r' \
+    | awk 'tolower($1) == "content-length:" { n = $2 } END { print n + 0 }')"
+  curl -fsSL --retry 3 --connect-timeout 15 -o "$out" "$url" &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ "$total" -gt 0 ]; then
+      size="$(stat -f %z "$out" 2>/dev/null || echo 0)"
+      printf '@progress %d\n' $((size * 100 / total))
+    fi
+    sleep 0.3
+  done
+  wait "$pid"
+}
+
 install_version() {
   local hash="$1" display="$2" url tmp app dest_parent
   url="$(download_url "$hash")"
@@ -271,9 +388,13 @@ install_version() {
   trap "rm -rf '$tmp'" EXIT
 
   info "Downloading Roblox $display ($(resolve_arch), channel $CHANNEL)"
-  local progress="-#"; [ -t 2 ] || progress="-sS"
-  curl -fL $progress --retry 3 --connect-timeout 15 -o "$tmp/RobloxPlayer.zip" "$url" \
-    || die "download failed: $url"
+  if [ -n "$GUI_MODE" ]; then
+    download_with_progress "$url" "$tmp/RobloxPlayer.zip" || die "download failed: $url"
+  else
+    local progress="-#"; [ -t 2 ] || progress="-sS"
+    curl -fL $progress --retry 3 --connect-timeout 15 -o "$tmp/RobloxPlayer.zip" "$url" \
+      || die "download failed: $url"
+  fi
 
   info "Extracting"
   mkdir -p "$tmp/x"
@@ -296,7 +417,9 @@ install_version() {
   is_macos && xattr -dr com.apple.quarantine "$app" 2>/dev/null || true
   mkdir -p "$SUPPORT_DIR"
   printf '%s\n' "$hash" > "$STATE_FILE"
-  apply_fflags
+  # A fresh app has Roblox's original files, so old mod backups are stale.
+  rm -rf "$MODS_BACKUP_DIR" "$MODS_MANIFEST"
+  apply_customizations
 
   rm -rf "$tmp"; trap - EXIT
   ok "Roblox $display installed at $app"
@@ -327,7 +450,7 @@ cmd_install() {
   [ "${1:-}" = "--force" ] || [ "${1:-}" = "-f" ] && force=1
   if ! update_if_needed "$force"; then
     ok "Roblox is up to date ($(installed_display_version))"
-    apply_fflags
+    apply_customizations
   fi
 }
 
@@ -352,7 +475,7 @@ cmd_launch() {
     else
       update_if_needed || true
     fi
-    apply_fflags
+    apply_customizations
   fi
   [ -d "$(app_path)" ] || die "Roblox is not installed"
 
@@ -399,8 +522,48 @@ function run(argv) {
 EOF
 }
 
-cmd_register() {
-  is_macos || die "registering a link handler requires macOS"
+# The SwiftUI launcher (built from app/ or downloaded from GitHub releases)
+# as opposed to the AppleScript applet fallback.
+handler_is_launcher() { [ -x "$HANDLER_APP/Contents/MacOS/RobloxBootstrapper" ]; }
+
+# Give the handler app Roblox's icon, re-sign it, and make it the default
+# handler for Roblox links.
+finish_handler_app() {
+  local plist="$HANDLER_APP/Contents/Info.plist" icon_name icon
+  icon_name="$(defaults read "$plist" CFBundleIconFile 2>/dev/null || echo applet)"
+  icon_name="${icon_name%.icns}"
+  icon="$(app_path)/Contents/Resources/$(defaults read "$(app_path)/Contents/Info.plist" CFBundleIconFile 2>/dev/null || echo AppIcon)"
+  case "$icon" in *.icns) ;; *) icon="$icon.icns" ;; esac
+  if [ -f "$icon" ]; then
+    cp "$icon" "$HANDLER_APP/Contents/Resources/$icon_name.icns"
+    rm -f "$HANDLER_APP/Contents/Resources/Assets.car"
+    /usr/libexec/PlistBuddy -c "Delete :CFBundleIconName" "$plist" 2>/dev/null || true
+  fi
+  # Editing the bundle invalidates its signature; re-sign ad hoc.
+  codesign --force --deep --sign - "$HANDLER_APP" >/dev/null 2>&1 || true
+  xattr -dr com.apple.quarantine "$HANDLER_APP" 2>/dev/null || true
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$HANDLER_APP"
+  set_url_handler "$HANDLER_BUNDLE_ID" || die "could not set the default handler for roblox:// links"
+}
+
+cmd_install_app() {
+  is_macos || die "the launcher app requires macOS"
+  local tmp
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/roblox-launcher.XXXXXX")"
+  info "Downloading the launcher app"
+  curl -fsSL --retry 3 --connect-timeout 15 -o "$tmp/app.zip" "$LAUNCHER_ZIP_URL" \
+    || { rm -rf "$tmp"; die "could not download $LAUNCHER_ZIP_URL"; }
+  ditto -x -k "$tmp/app.zip" "$tmp/x" || { rm -rf "$tmp"; die "launcher archive is corrupt"; }
+  [ -d "$tmp/x/Roblox Bootstrapper.app" ] || { rm -rf "$tmp"; die "launcher archive has no app"; }
+  mkdir -p "$(dirname "$HANDLER_APP")"
+  rm -rf "$HANDLER_APP"
+  mv "$tmp/x/Roblox Bootstrapper.app" "$HANDLER_APP"
+  rm -rf "$tmp"
+  finish_handler_app
+  ok "installed the launcher at $HANDLER_APP"
+}
+
+build_applet() {
   local self; self="$(self_path)"
   local script="$SUPPORT_DIR/handler.applescript"
   mkdir -p "$SUPPORT_DIR" "$(dirname "$HANDLER_APP")"
@@ -429,29 +592,31 @@ EOF
     -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string roblox-player" \
     -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:1 string roblox" \
     "$plist"
-  # Use Roblox's icon so the app works as a Dock/Spotlight launcher.
-  local icon
-  icon="$(app_path)/Contents/Resources/$(defaults read "$(app_path)/Contents/Info.plist" CFBundleIconFile 2>/dev/null || echo AppIcon)"
-  case "$icon" in *.icns) ;; *) icon="$icon.icns" ;; esac
-  if [ -f "$icon" ]; then
-    cp "$icon" "$HANDLER_APP/Contents/Resources/applet.icns"
-    rm -f "$HANDLER_APP/Contents/Resources/Assets.car"
-    /usr/libexec/PlistBuddy -c "Delete :CFBundleIconName" "$plist" 2>/dev/null || true
-  fi
-  # Editing Info.plist invalidates osacompile's signature; re-sign ad hoc.
-  codesign --force --deep --sign - "$HANDLER_APP" >/dev/null 2>&1 || true
+  finish_handler_app
+  warn "keep this script at $self — the link handler calls it by path"
+}
 
-  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$HANDLER_APP"
-  set_url_handler "$HANDLER_BUNDLE_ID" || die "could not set the default handler for roblox:// links"
+# register [--applet]: install the launcher app (downloading it if needed) and
+# route Roblox links through it; falls back to a minimal AppleScript applet.
+cmd_register() {
+  is_macos || die "registering a link handler requires macOS"
+  if handler_is_launcher; then
+    finish_handler_app
+  elif [ "${1:-}" != "--applet" ] && ( cmd_install_app ) 2>/dev/null; then
+    :
+  else
+    [ "${1:-}" = "--applet" ] || warn "launcher app unavailable; using a minimal link handler instead"
+    build_applet
+  fi
   ok "roblox:// links now open through the bootstrapper ($HANDLER_APP)"
   info "Open \"$(basename "$HANDLER_APP" .app)\" from Spotlight, Launchpad or the Dock to launch Roblox"
-  warn "keep this script at $self — the link handler calls it by path"
 }
 
 cmd_unregister() {
   is_macos || die "requires macOS"
   set_url_handler "com.roblox.RobloxPlayer" || warn "could not hand roblox:// links back to Roblox"
-  if [ -d "$HANDLER_APP" ]; then
+  # Only delete the applet; the launcher app stays usable without links.
+  if [ -f "$HANDLER_APP/Contents/MacOS/applet" ] || [ "${1:-}" = "--remove-app" ]; then
     /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$HANDLER_APP" 2>/dev/null || true
     rm -rf "$HANDLER_APP"
   fi
@@ -487,7 +652,32 @@ cmd_config() {
   esac
 }
 
+status_json() {
+  local latest="" cur running=false handler=false
+  cur="$(installed_version)"
+  latest="$(fetch_latest 2>/dev/null)" || latest=""
+  roblox_running && running=true
+  [ -d "$HANDLER_APP" ] && handler=true
+  ensure_fflags_file
+  mkdir -p "$MODS_DIR"
+  json_js '
+    var latest = args[5] ? args[5].split(" ") : null;
+    var installed = args[3] || null, hash = args[4] || null;
+    return JSON.stringify({
+      version: args[0], installPath: args[1], installDir: args[13], channel: args[2],
+      arch: args[6], archSetting: args[12],
+      installed: installed, installedHash: hash,
+      latest: latest ? latest[1] : null, latestHash: latest ? latest[0] : null,
+      upToDate: latest ? (hash === latest[0] || (!hash && installed === latest[1])) : null,
+      running: args[7] === "true", handlerInstalled: args[8] === "true",
+      fflagsPath: args[9], modsPath: args[10], supportPath: args[11], logPath: args[14]
+    }, null, 2);
+  ' "$VERSION" "$(app_path)" "$CHANNEL" "$(installed_display_version)" "$cur" "$latest" \
+    "$(resolve_arch)" "$running" "$handler" "$FFLAGS_FILE" "$MODS_DIR" "$SUPPORT_DIR" "$ARCH" "$INSTALL_DIR" "$LOG_FILE"
+}
+
 cmd_status() {
+  [ "${1:-}" = "--json" ] && { status_json; return; }
   local latest cur
   printf '%sRoblox Bootstrapper%s %s\n\n' "$C_BOLD" "$C_OFF" "$VERSION"
   printf '  Install path   %s\n' "$(app_path)"
@@ -506,6 +696,8 @@ cmd_status() {
   fi
   ensure_fflags_file
   printf '  FastFlags      %s set\n' "$(json_js 'return Object.keys(JSON.parse(args[0])).length;' "$(cat "$FFLAGS_FILE")")"
+  mkdir -p "$MODS_DIR"
+  printf '  Mods           %s files\n' "$(find "$MODS_DIR" -type f ! -name .DS_Store | wc -l | tr -d ' ')"
   if [ -d "$HANDLER_APP" ]; then printf '  Link handler   registered\n'
   else printf '  Link handler   not registered\n'; fi
 }
@@ -514,7 +706,7 @@ cmd_uninstall() {
   local purge=""
   [ "${1:-}" = "--purge" ] && purge=1
   roblox_running && die "quit Roblox first"
-  if [ -d "$HANDLER_APP" ]; then cmd_unregister; fi
+  if [ -d "$HANDLER_APP" ]; then cmd_unregister --remove-app; fi
   if [ -d "$(app_path)" ]; then rm -rf "$(app_path)"; ok "removed $(app_path)"; fi
   rm -f "$STATE_FILE"
   if [ -n "$purge" ]; then
@@ -534,7 +726,7 @@ ${C_BOLD}Usage:${C_OFF} $(basename "$0") <command> [args]
   install [--force]         Install Roblox, or update it if a new version is out
   update                    Same as install
   launch [roblox-link]      Update if needed, apply FastFlags, and start Roblox
-  status                    Show installed/latest versions and settings
+  status [--json]           Show installed/latest versions and settings
 
   fflags list               Show your FastFlags
   fflags set <Flag> <val>   Set a flag (true/false/integers are typed automatically)
@@ -543,7 +735,12 @@ ${C_BOLD}Usage:${C_OFF} $(basename "$0") <command> [args]
   fflags edit | clear       Edit in \$EDITOR / remove all flags
   fflags apply              Re-write flags into the installed client
 
-  register                  Open roblox:// website links through the bootstrapper
+  mods list | apply | clear Files in the mods folder replace Roblox's own files
+  mods path                 (the folder mirrors Roblox.app/Contents/Resources)
+
+  register [--applet]       Install the launcher app and send roblox:// links
+                            through it (--applet: minimal handler, no GUI)
+  install-app               Download or update the launcher app
   unregister                Hand roblox:// links back to Roblox
   config [show]             Show settings
   config set <KEY> <value>  CHANNEL (default LIVE), INSTALL_DIR (default
@@ -560,9 +757,11 @@ main() {
     install|update) cmd_install "$@" ;;
     launch|play) cmd_launch "$@" ;;
     roblox-player:*|roblox:*) cmd_launch "$cmd" ;;
-    status) cmd_status ;;
+    status) cmd_status "$@" ;;
     fflags|flags) cmd_fflags "$@" ;;
-    register) cmd_register ;;
+    mods|mod) cmd_mods "$@" ;;
+    register) cmd_register "$@" ;;
+    install-app) cmd_install_app ;;
     unregister) cmd_unregister ;;
     config) cmd_config "$@" ;;
     uninstall) cmd_uninstall "$@" ;;
