@@ -193,7 +193,6 @@ struct Sidebar: View {
             Button { router.go(.play) } label: {
                 HStack(spacing: 12) {
                     AppLogo(size: 38)
-                        .shadow(color: model.theme.accent.opacity(0.5), radius: 8)
                     VStack(alignment: .leading, spacing: 0) {
                         Text("Apple Labs")
                             .font(.ui(21, .heavy))
