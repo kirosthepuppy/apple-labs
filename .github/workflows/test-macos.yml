@@ -18,7 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     env:
-      BS: ./roblox-bootstrapper
+      # The script's file name has a space, so the steps use a link to it.
+      BS: ./bs
     defaults:
       run:
         shell: /bin/bash -euxo pipefail {0}
@@ -27,11 +28,12 @@ jobs:
 
       - name: Environment
         run: |
+          ln -s "Apple Labs" bs
           sw_vers
           uname -m
           /bin/bash --version | head -1
           swiftc --version
-          head -1 roblox-bootstrapper
+          head -1 "Apple Labs"
 
       - name: Configure
         run: |
@@ -169,7 +171,7 @@ jobs:
           lipo -archs "$APP/Contents/MacOS/RobloxBootstrapper" | grep -q x86_64
           codesign --verify --strict "$APP"
           test -s "$APP/Contents/Resources/AppIcon.icns"
-          cmp "$APP/Contents/Resources/roblox-bootstrapper" roblox-bootstrapper
+          cmp "$APP/Contents/Resources/roblox-bootstrapper" "Apple Labs"
           test -f app/build/Apple-Labs.zip
 
       - uses: actions/upload-artifact@v4
@@ -255,7 +257,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          version="$(sed -n 's/^VERSION="\(.*\)"/\1/p' roblox-bootstrapper)"
+          version="$(sed -n 's/^VERSION="\(.*\)"/\1/p' "Apple Labs")"
           tag="v$version"
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" Apple-Labs.zip --clobber

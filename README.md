@@ -25,7 +25,7 @@ optional native SwiftUI launcher app sits on top of it.
 ```sh
 mkdir -p ~/.local/bin
 curl -fsSL -o ~/.local/bin/roblox-bootstrapper \
-  https://raw.githubusercontent.com/kirosthepuppy/macOS-bootstrapper/main/roblox-bootstrapper
+  https://raw.githubusercontent.com/kirosthepuppy/macOS-bootstrapper/main/Apple%20Labs
 chmod +x ~/.local/bin/roblox-bootstrapper
 
 roblox-bootstrapper install     # download and install Roblox
@@ -35,7 +35,7 @@ roblox-bootstrapper register    # optional: send roblox:// links through the boo
 If your shell can't find `roblox-bootstrapper`, add `~/.local/bin` to your PATH:
 `echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc`, then open a new terminal.
 
-(Or just clone the repo and run `./roblox-bootstrapper`.)
+(Or just clone the repo and run `./Apple\ Labs`.)
 
 ## The launcher app (Apple Labs)
 

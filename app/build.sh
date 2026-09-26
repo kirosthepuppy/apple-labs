@@ -15,7 +15,9 @@ here="$(cd "$(dirname "$0")" && pwd)"
 root="$(dirname "$here")"
 out="$here/build"
 app="$out/Apple Labs.app"
-version="$(sed -n 's/^VERSION="\(.*\)"/\1/p' "$root/roblox-bootstrapper")"
+# The bootstrapper script; the app carries a copy under its command name.
+script="$root/Apple Labs"
+version="$(sed -n 's/^VERSION="\(.*\)"/\1/p' "$script")"
 
 rm -rf "$out"
 mkdir -p "$out" "$app/Contents/MacOS" "$app/Contents/Resources"
@@ -38,7 +40,7 @@ iconutil -c icns "$out/AppIcon.iconset" -o "$app/Contents/Resources/AppIcon.icns
 rm -rf "$out/make-icon" "$out/AppIcon.iconset"
 
 sed "s/__VERSION__/$version/g" "$here/Info.plist" > "$app/Contents/Info.plist"
-cp "$root/roblox-bootstrapper" "$app/Contents/Resources/roblox-bootstrapper"
+cp "$script" "$app/Contents/Resources/roblox-bootstrapper"
 chmod +x "$app/Contents/Resources/roblox-bootstrapper"
 printf 'APPL????' > "$app/Contents/PkgInfo"
 
