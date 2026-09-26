@@ -1,0 +1,122 @@
+name: Test on macOS
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest      # Apple Silicon
+            arch: arm64
+          - os: macos-15-intel    # Intel
+            arch: x86_64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      ROBLOX_INSTALL_DIR: ${{ github.workspace }}/apps
+      BS: ./roblox-bootstrapper
+    defaults:
+      run:
+        shell: /bin/bash -euxo pipefail {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Environment
+        run: |
+          sw_vers
+          uname -m
+          /bin/bash --version | head -1
+          head -1 roblox-bootstrapper
+
+      - name: Status (before install)
+        run: |
+          $BS status | tee status.txt
+          grep -q "Architecture   ${{ matrix.arch }}" status.txt
+          grep -q "Installed      no" status.txt
+
+      - name: FastFlags via osascript
+        run: |
+          $BS fflags set DFIntTaskSchedulerTargetFps 240
+          $BS fflags set FFlagDebugGraphicsPreferMetal true
+          $BS fflags set FStringTest -5x
+          $BS fflags list | tee flags.txt
+          grep -qx 'DFIntTaskSchedulerTargetFps = 240' flags.txt
+          grep -qx 'FFlagDebugGraphicsPreferMetal = true' flags.txt
+          grep -qx 'FStringTest = "-5x"' flags.txt
+          $BS fflags unset FStringTest
+          echo '{"FIntTest": 7}' > import.json
+          $BS fflags import import.json
+          echo '{bad' > bad.json
+          if $BS fflags import bad.json; then echo "bad JSON was accepted"; exit 1; fi
+          $BS fflags list
+
+      - name: Install
+        run: |
+          $BS install
+          APP="$ROBLOX_INSTALL_DIR/Roblox.app"
+          test -x "$APP/Contents/MacOS/RobloxPlayer"
+          lipo -archs "$APP/Contents/MacOS/RobloxPlayer"
+          lipo -archs "$APP/Contents/MacOS/RobloxPlayer" | grep -q "${{ matrix.arch }}"
+          codesign --verify --deep --strict "$APP"
+          spctl --assess --type execute -v "$APP" || true
+          cat "$APP/Contents/MacOS/ClientSettings/ClientAppSettings.json"
+          grep -q '"DFIntTaskSchedulerTargetFps": 240' "$APP/Contents/MacOS/ClientSettings/ClientAppSettings.json"
+          ! grep -q FStringTest "$APP/Contents/MacOS/ClientSettings/ClientAppSettings.json"
+
+      - name: Install again is a no-op
+        run: |
+          $BS install | tee again.txt
+          grep -q "up to date" again.txt
+          $BS status
+
+      - name: Launch
+        run: |
+          $BS launch
+          for i in $(seq 1 30); do pgrep -x RobloxPlayer && break; sleep 1; done
+          pgrep -x RobloxPlayer
+          pkill -x RobloxPlayer || true
+          sleep 3
+
+      - name: Register link handler
+        run: |
+          $BS register
+          test -d "$HOME/Applications/Roblox Bootstrapper.app"
+          handler() {
+            osascript -l JavaScript -e 'ObjC.import("CoreServices"); function run(a) { return ObjC.unwrap($.LSCopyDefaultHandlerForURLScheme($(a[0]))); }' "$1"
+          }
+          handler roblox-player
+          [ "$(handler roblox-player)" = "com.robloxbootstrapper.handler" ]
+          [ "$(handler roblox)" = "com.robloxbootstrapper.handler" ]
+          $BS status | grep -q "Link handler   registered"
+
+      - name: Open a roblox:// link through the handler
+        run: |
+          LOG="$HOME/Library/Application Support/RobloxBootstrapper/bootstrapper.log"
+          before=$(grep -c "launch url" "$LOG" || true)
+          open "roblox://experiences/start?placeId=1818"
+          for i in $(seq 1 45); do
+            after=$(grep -c "launch url" "$LOG" || true)
+            [ "$after" -gt "$before" ] && break
+            sleep 1
+          done
+          tail -20 "$LOG"
+          [ "$after" -gt "$before" ]
+          for i in $(seq 1 30); do pgrep -x RobloxPlayer && break; sleep 1; done
+          pkill -x RobloxPlayer || true
+          sleep 3
+
+      - name: Unregister and uninstall
+        run: |
+          $BS unregister
+          test ! -d "$HOME/Applications/Roblox Bootstrapper.app"
+          $BS uninstall --purge
+          test ! -d "$ROBLOX_INSTALL_DIR/Roblox.app"
+
+      - name: Log
+        if: always()
+        run: cat "$HOME/Library/Application Support/RobloxBootstrapper/bootstrapper.log" || true
