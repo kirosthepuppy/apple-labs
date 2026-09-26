@@ -203,13 +203,33 @@ apply_fflags() {
 # is additionally wired into every font family, like Bloxstrap does.
 # ---------------------------------------------------------------------------
 
+# Only one mods apply at a time. The launcher app can start several at once
+# (a mod change and a launch), and two interleaved runs used to restore the
+# same original twice and then delete it. shlock clears a lock whose owner
+# has died.
+mods_lock() {
+  local lock="$SUPPORT_DIR/.mods.lock" tries=0
+  mkdir -p "$SUPPORT_DIR"
+  until shlock -f "$lock" -p $$; do
+    tries=$((tries + 1))
+    [ "$tries" -gt 600 ] && die "another mods update is still running; try again"
+    sleep 0.1
+  done
+}
+
+mods_unlock() { rm -f "$SUPPORT_DIR/.mods.lock"; }
+
 apply_mods() {
-  local app res stage font ext rel fam
+  local app res stage font ext rel fam added
   app="$(app_path)"
   [ -d "$app" ] || return 0
   res="$app/Contents/Resources"
+  mods_lock
   mkdir -p "$MODS_DIR" "$MODS_BACKUP_DIR"
   touch "$MODS_MANIFEST"
+  # Files a mod added that Roblox doesn't have; removing the mod deletes them.
+  added="$MODS_BACKUP_DIR/.added"
+  touch "$added"
 
   stage="$(mktemp -d "${TMPDIR:-/tmp}/roblox-mods.XXXXXX")"
   ditto "$MODS_DIR" "$stage"
@@ -232,23 +252,31 @@ apply_mods() {
 
   (cd "$stage" && find . -type f | sed 's#^\./##' | LC_ALL=C sort) > "$MODS_MANIFEST.new"
 
-  # Put back files whose mod was removed.
+  # Put back files whose mod was removed. A file with no backup is deleted
+  # only if a mod added it; anything else is Roblox's own and stays.
   while IFS= read -r rel; do
     [ -n "$rel" ] || continue
     grep -qxF "$rel" "$MODS_MANIFEST.new" && continue
     if [ -f "$MODS_BACKUP_DIR/$rel" ]; then
       mv "$MODS_BACKUP_DIR/$rel" "$res/$rel"
-    else
+    elif grep -qxF "$rel" "$added"; then
       rm -f "$res/$rel"
+      { grep -vxF "$rel" "$added" || true; } > "$added.tmp"; mv "$added.tmp" "$added"
+    else
+      warn "no backup of Roblox's $rel; left it as is (reinstall Roblox to restore it)"
     fi
   done < "$MODS_MANIFEST"
 
   # Copy mods in, backing up each original the first time we replace it.
   while IFS= read -r rel; do
     [ -n "$rel" ] || continue
-    if [ -f "$res/$rel" ] && ! grep -qxF "$rel" "$MODS_MANIFEST"; then
-      mkdir -p "$(dirname "$MODS_BACKUP_DIR/$rel")"
-      cp -p "$res/$rel" "$MODS_BACKUP_DIR/$rel"
+    if ! grep -qxF "$rel" "$MODS_MANIFEST"; then
+      if [ -f "$res/$rel" ]; then
+        mkdir -p "$(dirname "$MODS_BACKUP_DIR/$rel")"
+        cp -p "$res/$rel" "$MODS_BACKUP_DIR/$rel"
+      elif ! grep -qxF "$rel" "$added"; then
+        printf '%s\n' "$rel" >> "$added"
+      fi
     fi
     mkdir -p "$(dirname "$res/$rel")"
     # Copy beside it and rename over it: a Roblox left running (it stays in the
@@ -259,6 +287,7 @@ apply_mods() {
 
   mv "$MODS_MANIFEST.new" "$MODS_MANIFEST"
   rm -rf "$stage"
+  mods_unlock
 }
 
 apply_customizations() {

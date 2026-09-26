@@ -112,6 +112,19 @@ jobs:
           $BS install --force
           cmp "$RES/content/sounds/ouch.ogg" "$RES/content/sounds/oof.ogg"
           $BS mods clear
+          # Several updates at once (the app can start them together) must
+          # never lose Roblox's own files.
+          families="$(ls "$RES/content/fonts/families" | wc -l)"
+          before="$(cd "$RES" && find . -type f -exec md5 -q {} + | sort | md5)"
+          for round in 1 2 3; do
+            mkdir -p "$MODS/content/fonts"
+            cp /System/Library/Fonts/Supplemental/Arial.ttf "$MODS/content/fonts/CustomFont.ttf"
+            for i in 1 2 3; do $BS mods apply & done; wait
+            rm -rf "$MODS/content"
+            for i in 1 2 3 4; do $BS mods apply & done; wait
+            [ "$(ls "$RES/content/fonts/families" | wc -l)" = "$families" ]
+          done
+          [ "$(cd "$RES" && find . -type f -exec md5 -q {} + | sort | md5)" = "$before" ]
 
       - name: Accounts
         env:

@@ -126,6 +126,8 @@ private struct Meter: View {
 private struct EngineTab: View {
     @EnvironmentObject var model: LauncherModel
 
+    private static let grassKeys = ["FIntFRMMinGrassDistance", "FIntFRMMaxGrassDistance"]
+
     private func intBinding(_ key: String) -> Binding<Int> {
         Binding(
             get: {
@@ -133,6 +135,11 @@ private struct EngineTab: View {
                 return -1
             },
             set: { model.setFlag(key, $0 == -1 ? nil : .int($0)) })
+    }
+
+    private func boolBinding(_ key: String) -> Binding<Bool> {
+        Binding(get: { model.flags[key] == .bool(true) },
+                set: { model.setFlag(key, $0 ? .bool(true) : nil) })
     }
 
     private var textureBinding: Binding<Int> {
@@ -150,6 +157,16 @@ private struct EngineTab: View {
             })
     }
 
+    private var grassBinding: Binding<Bool> {
+        Binding(
+            get: { Self.grassKeys.allSatisfy { model.flags[$0] == .int(0) } },
+            set: { off in
+                var changes: [String: FlagValue?] = [:]
+                for key in Self.grassKeys { changes[key] = off ? .int(0) : .some(nil) }
+                model.setFlags(changes)
+            })
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             GlassGroup {
@@ -164,6 +181,17 @@ private struct EngineTab: View {
                 }
             }
             .appearIn(1)
+
+            GlassGroup {
+                SettingRow(title: "Remove grass", detail: "Hides terrain grass for a cleaner, faster view") {
+                    AccentToggle(isOn: grassBinding, accent: model.theme.accent)
+                }
+                RowDivider()
+                SettingRow(title: "Plain gray sky", detail: "Replaces the skybox with flat gray") {
+                    AccentToggle(isOn: boolBinding("FFlagDebugSkyGray"), accent: model.theme.accent)
+                }
+            }
+            .appearIn(2)
 
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "speedometer")
@@ -341,16 +369,7 @@ private struct FlagRow: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .textSelection(.enabled)
-            if LauncherModel.crashingFlags.contains(name) {
-                Text("Crashes Roblox on Mac")
-                    .font(.ui(10.5, .bold))
-                    .foregroundStyle(.red)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(Capsule().fill(.red.opacity(0.15)))
-                    .fixedSize()
-                    .help("Roblox on Mac crashes when joining a game with this flag set")
-            } else if !LauncherModel.allowedFlags.contains(name) {
+            if !LauncherModel.allowedFlags.contains(name) {
                 Text("Ignored by Roblox")
                     .font(.ui(10.5, .bold))
                     .foregroundStyle(.orange)
