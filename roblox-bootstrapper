@@ -340,6 +340,8 @@ cmd_launch() {
   is_macos || die "launching Roblox requires macOS"
 
   if roblox_running && [ -z "$url" ]; then
+    info "Roblox is already running; bringing it to the front"
+    info "Quit Roblox (Cmd+Q) and launch again to pick up updates or flag changes"
     open -a "$(app_path)"; return
   fi
 
