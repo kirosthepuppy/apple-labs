@@ -29,6 +29,7 @@ namespace AppleLabs
         public string StyleTab = "cursor";
         public string LauncherTab = "look";
         public bool DesktopShortcutOffered;
+        public bool RetiredFlagsRemoved;
 
         public static Settings Load()
         {
@@ -58,6 +59,7 @@ namespace AppleLabs
             s.StyleTab = o.Str("styleTab") ?? s.StyleTab;
             s.LauncherTab = o.Str("launcherTab") ?? s.LauncherTab;
             s.DesktopShortcutOffered = o.Bool("desktopShortcutOffered") ?? false;
+            s.RetiredFlagsRemoved = o.Bool("retiredFlagsRemoved") ?? false;
             return s;
         }
 
@@ -87,6 +89,7 @@ namespace AppleLabs
                 ["styleTab"] = StyleTab,
                 ["launcherTab"] = LauncherTab,
                 ["desktopShortcutOffered"] = DesktopShortcutOffered,
+                ["retiredFlagsRemoved"] = RetiredFlagsRemoved,
             };
             try { Paths.WriteAtomic(Paths.Settings, Json.Write(o)); }
             catch (Exception e) { Log.Warn("could not save settings: " + e.Message); }

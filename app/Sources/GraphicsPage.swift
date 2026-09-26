@@ -126,7 +126,7 @@ private struct Meter: View {
 private struct EngineTab: View {
     @EnvironmentObject var model: LauncherModel
 
-    private static let grassKeys = ["FIntFRMMinGrassDistance", "FIntFRMMaxGrassDistance", "FIntRenderGrassDetailStrands"]
+    private static let grassKeys = ["FIntFRMMinGrassDistance", "FIntFRMMaxGrassDistance"]
 
     private func intBinding(_ key: String) -> Binding<Int> {
         Binding(
@@ -167,21 +167,9 @@ private struct EngineTab: View {
             })
     }
 
-    private var fpsOptions: [(label: String, value: Int)] {
-        var options: [(label: String, value: Int)] = [("Default", -1), ("60", 60), ("120", 120), ("144", 144), ("240", 240), ("Unlimited", 9999)]
-        if case .int(let n)? = model.flags["DFIntTaskSchedulerTargetFps"], !options.contains(where: { $0.value == n }) {
-            options.append(("\(n)", n))
-        }
-        return options
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             GlassGroup {
-                SettingRow(title: "Frame rate limit", detail: "Frames per second Roblox aims for") {
-                    ChipPicker(options: fpsOptions, selection: intBinding("DFIntTaskSchedulerTargetFps"), accent: model.theme.accent)
-                }
-                RowDivider()
                 SettingRow(title: "Anti-aliasing", detail: "Smooths jagged edges; higher costs more") {
                     ChipPicker(options: [("Default", -1), ("Off", 1), ("2×", 2), ("4×", 4), ("8×", 8)],
                                selection: intBinding("FIntDebugForceMSAASamples"), accent: model.theme.accent)
@@ -195,10 +183,6 @@ private struct EngineTab: View {
             .appearIn(1)
 
             GlassGroup {
-                SettingRow(title: "Disable post-processing", detail: "Removes bloom, blur, sun rays and colour correction") {
-                    AccentToggle(isOn: boolBinding("FFlagDisablePostFx"), accent: model.theme.accent)
-                }
-                RowDivider()
                 SettingRow(title: "Remove grass", detail: "Hides terrain grass for a cleaner, faster view") {
                     AccentToggle(isOn: grassBinding, accent: model.theme.accent)
                 }
@@ -209,10 +193,27 @@ private struct EngineTab: View {
             }
             .appearIn(2)
 
-            Text("Roblox only honours FastFlags on its allowlist and quietly ignores the rest. Changes load the next time Roblox starts.")
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "speedometer")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(model.theme.accent)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Frame rate").font(.ui(14, .bold))
+                    Text("Roblox no longer lets launchers set the frame rate. Set it in Roblox itself: open the menu in any game, then Settings › Maximum Frame Rate.")
+                        .font(.ui(12.5))
+                        .foregroundStyle(.white.opacity(0.7))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(14)
+            .glass(corner: 16)
+            .appearIn(3)
+
+            Text("Roblox only reads the FastFlags on its allowlist and ignores the rest. Changes load the next time Roblox starts; if it's open, the launcher restarts it when you press Play.")
                 .font(.ui(12))
                 .foregroundStyle(.white.opacity(0.5))
-                .appearIn(3)
+                .appearIn(4)
         }
     }
 }
@@ -368,6 +369,16 @@ private struct FlagRow: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .textSelection(.enabled)
+            if !LauncherModel.allowedFlags.contains(name) {
+                Text("Ignored by Roblox")
+                    .font(.ui(10.5, .bold))
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(.orange.opacity(0.15)))
+                    .fixedSize()
+                    .help("Not on Roblox's FastFlag allowlist, so Roblox skips it")
+            }
             Spacer()
             if case .bool(let b) = value {
                 AccentToggle(isOn: Binding(get: { b }, set: { model.setFlag(name, .bool($0)) }), accent: model.theme.accent)

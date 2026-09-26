@@ -334,6 +334,19 @@ namespace AppleLabs
             {
                 flags = FastFlags.Load();
                 FlagsError = null;
+                // Earlier versions set a few flags Roblox has since stopped reading; drop them once.
+                if (!Settings.RetiredFlagsRemoved)
+                {
+                    Settings.RetiredFlagsRemoved = true;
+                    Settings.Save();
+                    if (FastFlags.Retired.Any(flags.ContainsKey))
+                    {
+                        var cleaned = new Dictionary<string, object>(flags);
+                        foreach (var key in FastFlags.Retired) cleaned.Remove(key);
+                        FastFlags.Save(cleaned);
+                        flags = cleaned;
+                    }
+                }
             }
             catch (FormatException)
             {
@@ -477,8 +490,6 @@ namespace AppleLabs
                     Text = preset == null ? "Custom graphics" : preset.Id == "default" ? "Default graphics" : preset.Name + " preset",
                     Active = preset?.Id != "default", Page = "graphics", Tab = "presets",
                 });
-                if (flags.TryGetValue("DFIntTaskSchedulerTargetFps", out var fps) && fps is long n)
-                    items.Add(new LoadoutItem { Id = "fps", Glyph = "\uEC4A", Text = n >= 9999 ? "Unlimited FPS" : $"{n} FPS cap", Active = true, Page = "graphics", Tab = "engine" });
                 var m = Mods;
                 items.Add(new LoadoutItem
                 {

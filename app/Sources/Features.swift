@@ -86,11 +86,25 @@ extension LauncherModel {
 
     // MARK: - Presets
 
+    /// The flags Roblox still reads from ClientAppSettings.json. Since September
+    /// 2025 it ignores every other one:
+    /// https://devforum.roblox.com/t/allowlist-for-local-client-configuration-via-fast-flags/3966569
+    static let allowedFlags: Set<String> = [
+        "DFIntCSGLevelOfDetailSwitchingDistance", "DFIntCSGLevelOfDetailSwitchingDistanceL12",
+        "DFIntCSGLevelOfDetailSwitchingDistanceL23", "DFIntCSGLevelOfDetailSwitchingDistanceL34",
+        "FFlagHandleAltEnterFullscreenManually", "DFFlagTextureQualityOverrideEnabled", "DFIntTextureQualityOverride",
+        "FIntDebugForceMSAASamples", "DFFlagDisableDPIScale", "FFlagDebugGraphicsPreferD3D11", "FFlagDebugSkyGray",
+        "DFFlagDebugPauseVoxelizer", "DFIntDebugFRMQualityLevelOverride", "FIntFRMMaxGrassDistance",
+        "FIntFRMMinGrassDistance", "FFlagDebugGraphicsPreferVulkan", "FFlagDebugGraphicsPreferOpenGL",
+        "FIntGrassMovementReducedMotionFactor",
+    ]
+
+    /// Flags earlier versions of this launcher set that Roblox now ignores.
+    static let retiredFlags = ["DFIntTaskSchedulerTargetFps", "FFlagDisablePostFx", "FIntRenderGrassDetailStrands"]
+
     static let presetKeys: Set<String> = [
-        "DFIntTaskSchedulerTargetFps", "FIntDebugForceMSAASamples",
-        "DFFlagTextureQualityOverrideEnabled", "DFIntTextureQualityOverride",
-        "FFlagDisablePostFx", "FFlagDebugSkyGray",
-        "FIntFRMMinGrassDistance", "FIntFRMMaxGrassDistance", "FIntRenderGrassDetailStrands",
+        "FIntDebugForceMSAASamples", "DFFlagTextureQualityOverrideEnabled", "DFIntTextureQualityOverride",
+        "FFlagDebugSkyGray", "FIntFRMMinGrassDistance", "FIntFRMMaxGrassDistance",
     ]
 
     static let presets: [GraphicsPreset] = [
@@ -100,32 +114,29 @@ extension LauncherModel {
             highlights: ["Stock settings"], speed: 3, looks: 3, flags: [:]),
         GraphicsPreset(
             id: "balanced", name: "Balanced", symbol: "scale.3d",
-            blurb: "Smoother than stock without giving up looks.",
-            highlights: ["120 FPS cap", "2× anti-aliasing"], speed: 4, looks: 3,
+            blurb: "Smoother edges without costing much speed.",
+            highlights: ["2× anti-aliasing", "Medium textures"], speed: 4, looks: 3,
             flags: [
-                "DFIntTaskSchedulerTargetFps": .int(120),
                 "FIntDebugForceMSAASamples": .int(2),
+                "DFFlagTextureQualityOverrideEnabled": .bool(true),
+                "DFIntTextureQualityOverride": .int(2),
             ]),
         GraphicsPreset(
             id: "performance", name: "Performance", symbol: "bolt.fill",
-            blurb: "High frame rates for competitive games.",
-            highlights: ["240 FPS cap", "No anti-aliasing", "Low textures", "No post effects", "No grass"], speed: 5, looks: 2,
+            blurb: "Less to draw, for steadier frame rates.",
+            highlights: ["No anti-aliasing", "Low textures", "No grass"], speed: 5, looks: 2,
             flags: [
-                "DFIntTaskSchedulerTargetFps": .int(240),
                 "FIntDebugForceMSAASamples": .int(1),
                 "DFFlagTextureQualityOverrideEnabled": .bool(true),
                 "DFIntTextureQualityOverride": .int(1),
-                "FFlagDisablePostFx": .bool(true),
                 "FIntFRMMinGrassDistance": .int(0),
                 "FIntFRMMaxGrassDistance": .int(0),
-                "FIntRenderGrassDetailStrands": .int(0),
             ]),
         GraphicsPreset(
             id: "quality", name: "Quality", symbol: "sparkles",
             blurb: "Crisp edges and full textures on a strong Mac.",
-            highlights: ["120 FPS cap", "4× anti-aliasing", "High textures"], speed: 3, looks: 5,
+            highlights: ["4× anti-aliasing", "High textures"], speed: 3, looks: 5,
             flags: [
-                "DFIntTaskSchedulerTargetFps": .int(120),
                 "FIntDebugForceMSAASamples": .int(4),
                 "DFFlagTextureQualityOverrideEnabled": .bool(true),
                 "DFIntTextureQualityOverride": .int(3),
@@ -133,17 +144,14 @@ extension LauncherModel {
         GraphicsPreset(
             id: "potato", name: "Potato", symbol: "leaf.fill",
             blurb: "Everything turned down for older Macs.",
-            highlights: ["60 FPS cap", "Lowest textures", "No post effects", "No grass", "Gray sky"], speed: 5, looks: 1,
+            highlights: ["No anti-aliasing", "Lowest textures", "No grass", "Gray sky"], speed: 5, looks: 1,
             flags: [
-                "DFIntTaskSchedulerTargetFps": .int(60),
                 "FIntDebugForceMSAASamples": .int(1),
                 "DFFlagTextureQualityOverrideEnabled": .bool(true),
                 "DFIntTextureQualityOverride": .int(0),
-                "FFlagDisablePostFx": .bool(true),
                 "FFlagDebugSkyGray": .bool(true),
                 "FIntFRMMinGrassDistance": .int(0),
                 "FIntFRMMaxGrassDistance": .int(0),
-                "FIntRenderGrassDetailStrands": .int(0),
             ]),
     ]
 
@@ -163,11 +171,9 @@ extension LauncherModel {
     /// Plain-English names for the engine flags that are set.
     var flagSummary: String {
         let names: [(String, String)] = [
-            ("DFIntTaskSchedulerTargetFps", "frame rate"),
             ("FIntDebugForceMSAASamples", "anti-aliasing"),
             ("DFIntTextureQualityOverride", "textures"),
-            ("FFlagDisablePostFx", "post effects"),
-            ("FIntRenderGrassDetailStrands", "grass"),
+            ("FIntFRMMaxGrassDistance", "grass"),
             ("FFlagDebugSkyGray", "sky"),
         ]
         let set = names.filter { flags[$0.0] != nil }.map(\.1)
@@ -187,11 +193,6 @@ extension LauncherModel {
             id: "preset", symbol: preset?.symbol ?? "slider.horizontal.3",
             text: preset.map { $0.id == "default" ? "Default graphics" : "\($0.name) preset" } ?? "Custom graphics",
             active: preset?.id != "default", destination: .graphics(.presets)))
-        if case .int(let fps)? = flags["DFIntTaskSchedulerTargetFps"] {
-            items.append(LoadoutItem(id: "fps", symbol: "speedometer",
-                                     text: fps >= 9999 ? "Unlimited FPS" : "\(fps) FPS cap",
-                                     active: true, destination: .graphics(.engine)))
-        }
         items.append(LoadoutItem(id: "cursor", symbol: "cursorarrow",
                                  text: cursorStyle == .standard ? "Default cursor" : "\(cursorLabel) cursor",
                                  active: cursorStyle != .standard, destination: .style(.cursor)))

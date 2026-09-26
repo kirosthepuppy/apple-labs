@@ -458,6 +458,15 @@ final class LauncherModel: ObservableObject {
         }
         flagsError = nil
         flags = object.compactMapValues(FlagValue.init(json:))
+        // Earlier versions set a few flags Roblox has since stopped reading; drop them once.
+        if !UserDefaults.standard.bool(forKey: "retiredFlagsRemoved") {
+            UserDefaults.standard.set(true, forKey: "retiredFlagsRemoved")
+            if Self.retiredFlags.contains(where: { flags[$0] != nil }) {
+                var cleaned = flags
+                Self.retiredFlags.forEach { cleaned[$0] = nil }
+                saveFlags(cleaned)
+            }
+        }
     }
 
     func setFlag(_ name: String, _ value: FlagValue?) {

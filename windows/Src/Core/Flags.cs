@@ -23,12 +23,29 @@ namespace AppleLabs
     /// </summary>
     static class FastFlags
     {
+        /// <summary>
+        /// The flags Roblox still reads from ClientAppSettings.json. Since September
+        /// 2025 it ignores every other one:
+        /// https://devforum.roblox.com/t/allowlist-for-local-client-configuration-via-fast-flags/3966569
+        /// </summary>
+        public static readonly HashSet<string> Allowed = new HashSet<string>
+        {
+            "DFIntCSGLevelOfDetailSwitchingDistance", "DFIntCSGLevelOfDetailSwitchingDistanceL12",
+            "DFIntCSGLevelOfDetailSwitchingDistanceL23", "DFIntCSGLevelOfDetailSwitchingDistanceL34",
+            "FFlagHandleAltEnterFullscreenManually", "DFFlagTextureQualityOverrideEnabled", "DFIntTextureQualityOverride",
+            "FIntDebugForceMSAASamples", "DFFlagDisableDPIScale", "FFlagDebugGraphicsPreferD3D11", "FFlagDebugSkyGray",
+            "DFFlagDebugPauseVoxelizer", "DFIntDebugFRMQualityLevelOverride", "FIntFRMMaxGrassDistance",
+            "FIntFRMMinGrassDistance", "FFlagDebugGraphicsPreferVulkan", "FFlagDebugGraphicsPreferOpenGL",
+            "FIntGrassMovementReducedMotionFactor",
+        };
+
+        /// <summary>Flags earlier versions of the launcher set that Roblox now ignores.</summary>
+        public static readonly string[] Retired = { "DFIntTaskSchedulerTargetFps", "FFlagDisablePostFx", "FIntRenderGrassDetailStrands" };
+
         public static readonly HashSet<string> PresetKeys = new HashSet<string>
         {
-            "DFIntTaskSchedulerTargetFps", "FIntDebugForceMSAASamples",
-            "DFFlagTextureQualityOverrideEnabled", "DFIntTextureQualityOverride",
-            "FFlagDisablePostFx", "FFlagDebugSkyGray",
-            "FIntFRMMinGrassDistance", "FIntFRMMaxGrassDistance", "FIntRenderGrassDetailStrands",
+            "FIntDebugForceMSAASamples", "DFFlagTextureQualityOverrideEnabled", "DFIntTextureQualityOverride",
+            "FFlagDebugSkyGray", "FIntFRMMinGrassDistance", "FIntFRMMaxGrassDistance",
         };
 
         public static readonly GraphicsPreset[] Presets =
@@ -43,40 +60,37 @@ namespace AppleLabs
             new GraphicsPreset
             {
                 Id = "balanced", Name = "Balanced", Glyph = "\uE8AB",
-                Blurb = "Smoother than stock without giving up looks.",
-                Highlights = new[] { "120 FPS cap", "2× anti-aliasing" }, Speed = 4, Looks = 3,
+                Blurb = "Smoother edges without costing much speed.",
+                Highlights = new[] { "2× anti-aliasing", "Medium textures" }, Speed = 4, Looks = 3,
                 Flags = new Dictionary<string, object>
                 {
-                    ["DFIntTaskSchedulerTargetFps"] = 120L,
                     ["FIntDebugForceMSAASamples"] = 2L,
+                    ["DFFlagTextureQualityOverrideEnabled"] = true,
+                    ["DFIntTextureQualityOverride"] = 2L,
                 },
             },
             new GraphicsPreset
             {
                 Id = "performance", Name = "Performance", Glyph = "\uE945",
-                Blurb = "High frame rates for competitive games.",
-                Highlights = new[] { "240 FPS cap", "No anti-aliasing", "Low textures", "No post effects", "No grass" },
+                Blurb = "Less to draw, for steadier frame rates.",
+                Highlights = new[] { "No anti-aliasing", "Low textures", "No grass" },
                 Speed = 5, Looks = 2,
                 Flags = new Dictionary<string, object>
                 {
-                    ["DFIntTaskSchedulerTargetFps"] = 240L,
                     ["FIntDebugForceMSAASamples"] = 1L,
                     ["DFFlagTextureQualityOverrideEnabled"] = true,
                     ["DFIntTextureQualityOverride"] = 1L,
-                    ["FFlagDisablePostFx"] = true,
                     ["FIntFRMMinGrassDistance"] = 0L,
                     ["FIntFRMMaxGrassDistance"] = 0L,
-                    ["FIntRenderGrassDetailStrands"] = 0L,
                 },
             },
             new GraphicsPreset
             {
                 Id = "quality", Name = "Quality", Glyph = "\uE734",
                 Blurb = "Crisp edges and full textures on a strong PC.",
-                Highlights = new[] { "120 FPS cap", "4× anti-aliasing", "High textures" }, Speed = 3, Looks = 5,
+                Highlights = new[] { "4× anti-aliasing", "High textures" }, Speed = 3, Looks = 5,
                 Flags = new Dictionary<string, object>
                 {
-                    ["DFIntTaskSchedulerTargetFps"] = 120L,
                     ["FIntDebugForceMSAASamples"] = 4L,
                     ["DFFlagTextureQualityOverrideEnabled"] = true,
                     ["DFIntTextureQualityOverride"] = 3L,
@@ -86,19 +100,16 @@ namespace AppleLabs
             {
                 Id = "potato", Name = "Potato", Glyph = "\uE7E8",
                 Blurb = "Everything turned down for older PCs.",
-                Highlights = new[] { "60 FPS cap", "Lowest textures", "No post effects", "No grass", "Gray sky" },
+                Highlights = new[] { "No anti-aliasing", "Lowest textures", "No grass", "Gray sky" },
                 Speed = 5, Looks = 1,
                 Flags = new Dictionary<string, object>
                 {
-                    ["DFIntTaskSchedulerTargetFps"] = 60L,
                     ["FIntDebugForceMSAASamples"] = 1L,
                     ["DFFlagTextureQualityOverrideEnabled"] = true,
                     ["DFIntTextureQualityOverride"] = 0L,
-                    ["FFlagDisablePostFx"] = true,
                     ["FFlagDebugSkyGray"] = true,
                     ["FIntFRMMinGrassDistance"] = 0L,
                     ["FIntFRMMaxGrassDistance"] = 0L,
-                    ["FIntRenderGrassDetailStrands"] = 0L,
                 },
             },
         };
@@ -204,11 +215,9 @@ namespace AppleLabs
         {
             var names = new[]
             {
-                ("DFIntTaskSchedulerTargetFps", "frame rate"),
                 ("FIntDebugForceMSAASamples", "anti-aliasing"),
                 ("DFIntTextureQualityOverride", "textures"),
-                ("FFlagDisablePostFx", "post effects"),
-                ("FIntRenderGrassDetailStrands", "grass"),
+                ("FIntFRMMaxGrassDistance", "grass"),
                 ("FFlagDebugSkyGray", "sky"),
             };
             var parts = names.Where(n => flags.ContainsKey(n.Item1)).Select(n => n.Item2).ToList();

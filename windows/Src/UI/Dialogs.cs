@@ -91,7 +91,7 @@ namespace AppleLabs
                 VerticalContentAlignment = VerticalAlignment.Top,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                Tag = "{ \"DFIntTaskSchedulerTargetFps\": 240 }",
+                Tag = "{ \"FIntDebugForceMSAASamples\": 4 }",
             };
             var error = K.T("", 12.5, null, 1, wrap: true);
             error.Foreground = new SolidColorBrush(Color.FromRgb(255, 120, 110));

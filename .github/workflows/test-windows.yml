@@ -63,11 +63,11 @@ jobs:
       - name: FastFlags
         run: |
           . windows/tests/cli.ps1
-          Invoke-AppleLabs fflags set DFIntTaskSchedulerTargetFps 144 | Out-Null
+          Invoke-AppleLabs fflags set FIntDebugForceMSAASamples 4 | Out-Null
           Invoke-AppleLabs fflags set FFlagDebugSkyGray true | Out-Null
           $s = Get-Status
           $applied = Get-Content (Join-Path $s.installPath 'ClientSettings\ClientAppSettings.json') -Raw | ConvertFrom-Json
-          Assert ($applied.DFIntTaskSchedulerTargetFps -eq 144) "flag value not applied"
+          Assert ($applied.FIntDebugForceMSAASamples -eq 4) "flag value not applied"
           Assert ($applied.FFlagDebugSkyGray -eq $true) "bool flag not applied"
           '{ "FIntImported": 7 }' | Set-Content "$env:RUNNER_TEMP\import.json"
           Invoke-AppleLabs fflags import "$env:RUNNER_TEMP\import.json" | Out-Null

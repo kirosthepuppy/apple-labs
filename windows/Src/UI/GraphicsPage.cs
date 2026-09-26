@@ -120,24 +120,18 @@ namespace AppleLabs
         // ------------------------------------------------------------------
         // Engine
 
-        static readonly string[] GrassKeys = { "FIntFRMMinGrassDistance", "FIntFRMMaxGrassDistance", "FIntRenderGrassDetailStrands" };
+        static readonly string[] GrassKeys = { "FIntFRMMinGrassDistance", "FIntFRMMaxGrassDistance" };
 
         static long IntFlag(LauncherModel m, string key) => m.Flags.TryGetValue(key, out var v) && v is long n ? n : -1;
         static bool BoolFlag(LauncherModel m, string key) => m.Flags.TryGetValue(key, out var v) && v is bool b && b;
 
         static UIElement Engine(LauncherModel m) => new Live(m, new[] { nameof(LauncherModel.Flags) }, () =>
         {
-            var fps = new List<(string, long)> { ("Default", -1), ("60", 60), ("120", 120), ("144", 144), ("240", 240), ("Unlimited", 9999) };
-            var currentFps = IntFlag(m, "DFIntTaskSchedulerTargetFps");
-            if (currentFps != -1 && fps.All(o => o.Item2 != currentFps)) fps.Add((currentFps.ToString(), currentFps));
-
             var textures = m.Flags.TryGetValue("DFFlagTextureQualityOverrideEnabled", out var on) && on is bool b && b
                 ? IntFlag(m, "DFIntTextureQualityOverride") : -1;
             var grassOff = GrassKeys.All(k => m.Flags.TryGetValue(k, out var v) && v is long n && n == 0);
 
             var group1 = K.Group(
-                K.SettingRow("Frame rate limit", "Frames per second Roblox aims for",
-                    K.Chips(fps, currentFps, v => m.SetFlag("DFIntTaskSchedulerTargetFps", v == -1 ? null : (object)v))),
                 K.SettingRow("Anti-aliasing", "Smooths jagged edges; higher costs more",
                     K.Chips(new[] { ("Default", -1L), ("Off", 1L), ("2×", 2L), ("4×", 4L), ("8×", 8L) }, IntFlag(m, "FIntDebugForceMSAASamples"),
                         v => m.SetFlag("FIntDebugForceMSAASamples", v == -1 ? null : (object)v))),
@@ -149,14 +143,16 @@ namespace AppleLabs
                             ["DFIntTextureQualityOverride"] = v == -1 ? null : (object)v,
                         }))));
             var group2 = K.Group(
-                K.SettingRow("Disable post-processing", "Removes bloom, blur, sun rays and colour correction",
-                    K.Switch(BoolFlag(m, "FFlagDisablePostFx"), v => m.SetFlag("FFlagDisablePostFx", v ? (object)true : null))),
                 K.SettingRow("Remove grass", "Hides terrain grass for a cleaner, faster view",
                     K.Switch(grassOff, v => m.SetFlags(GrassKeys.ToDictionary(k => k, k => v ? (object)0L : null)))),
                 K.SettingRow("Plain gray sky", "Replaces the skybox with flat gray",
                     K.Switch(BoolFlag(m, "FFlagDebugSkyGray"), v => m.SetFlag("FFlagDebugSkyGray", v ? (object)true : null))));
-            return K.V(18, K.AppearIn(group1, 1), K.AppearIn(group2, 2),
-                K.AppearIn(K.T("Roblox only honours FastFlags on its allowlist and quietly ignores the rest. Changes load the next time Roblox starts.", 12, null, 0.5, wrap: true), 3));
+            var frameRate = K.Card(K.H(12, K.Icon("\uEC4A", 16, K.Res("AccentBrush")), K.V(4,
+                K.T("Frame rate", 14, FontWeights.Bold),
+                K.T("Roblox no longer lets launchers set the frame rate. Set it in Roblox itself: open the menu in any game, then Settings › Maximum Frame Rate.", 12.5, null, 0.7, wrap: true))),
+                16, new Thickness(14));
+            return K.V(18, K.AppearIn(group1, 1), K.AppearIn(group2, 2), K.AppearIn(frameRate, 3),
+                K.AppearIn(K.T("Roblox only reads the FastFlags on its allowlist and ignores the rest. Changes load the next time Roblox starts; if it's open, the launcher restarts it when you press Play.", 12, null, 0.5, wrap: true), 4));
         });
     }
 
@@ -268,7 +264,22 @@ namespace AppleLabs
             }
             var remove = K.Plain(K.Icon("\uE738", 14, K.White(0.45)), () => m.SetFlag(name, null), "Remove " + name);
             remove.VerticalAlignment = VerticalAlignment.Center;
-            var row = K.Row(12, label, editor, remove);
+            UIElement nameCell = label;
+            if (!FastFlags.Allowed.Contains(name))
+            {
+                var orange = Color.FromRgb(255, 159, 10);
+                var ignored = K.T("Ignored by Roblox", 10.5, FontWeights.Bold);
+                ignored.Foreground = new SolidColorBrush(orange);
+                var badge = new Border
+                {
+                    Child = ignored, Padding = new Thickness(7, 3, 7, 3), CornerRadius = new CornerRadius(999),
+                    Background = new SolidColorBrush(Color.FromArgb(38, orange.R, orange.G, orange.B)),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    ToolTip = "Not on Roblox's FastFlag allowlist, so Roblox skips it",
+                };
+                nameCell = K.H(8, label, badge);
+            }
+            var row = K.Row(12, nameCell, editor, remove);
             row.Margin = new Thickness(18, 10, 18, 10);
             return row;
         }
