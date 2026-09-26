@@ -16,7 +16,24 @@ struct GraphicsPreset: Identifiable {
     let symbol: String
     let blurb: String
     let highlights: [String]
+    /// 1–5 ratings shown as meters on the preset cards.
+    let speed: Int
+    let looks: Int
     let flags: [String: FlagValue]
+}
+
+/// One entry in the Play page's "Your loadout" strip.
+struct LoadoutItem: Identifiable {
+    enum Destination {
+        case graphics(GraphicsTab)
+        case style(StyleTab)
+    }
+
+    let id: String
+    let symbol: String
+    let text: String
+    let active: Bool
+    let destination: Destination
 }
 
 /// The launcher's overall state, shown in the status pills.
@@ -80,11 +97,11 @@ extension LauncherModel {
         GraphicsPreset(
             id: "default", name: "Roblox default", symbol: "circle.dashed",
             blurb: "No engine tweaks. Roblox decides everything.",
-            highlights: ["Stock settings"], flags: [:]),
+            highlights: ["Stock settings"], speed: 3, looks: 3, flags: [:]),
         GraphicsPreset(
             id: "balanced", name: "Balanced", symbol: "scale.3d",
             blurb: "Smoother than stock without giving up looks.",
-            highlights: ["120 FPS cap", "2× anti-aliasing"],
+            highlights: ["120 FPS cap", "2× anti-aliasing"], speed: 4, looks: 3,
             flags: [
                 "DFIntTaskSchedulerTargetFps": .int(120),
                 "FIntDebugForceMSAASamples": .int(2),
@@ -92,7 +109,7 @@ extension LauncherModel {
         GraphicsPreset(
             id: "performance", name: "Performance", symbol: "bolt.fill",
             blurb: "High frame rates for competitive games.",
-            highlights: ["240 FPS cap", "No anti-aliasing", "Low textures", "No post effects", "No grass"],
+            highlights: ["240 FPS cap", "No anti-aliasing", "Low textures", "No post effects", "No grass"], speed: 5, looks: 2,
             flags: [
                 "DFIntTaskSchedulerTargetFps": .int(240),
                 "FIntDebugForceMSAASamples": .int(1),
@@ -106,7 +123,7 @@ extension LauncherModel {
         GraphicsPreset(
             id: "quality", name: "Quality", symbol: "sparkles",
             blurb: "Crisp edges and full textures on a strong Mac.",
-            highlights: ["120 FPS cap", "4× anti-aliasing", "High textures"],
+            highlights: ["120 FPS cap", "4× anti-aliasing", "High textures"], speed: 3, looks: 5,
             flags: [
                 "DFIntTaskSchedulerTargetFps": .int(120),
                 "FIntDebugForceMSAASamples": .int(4),
@@ -116,7 +133,7 @@ extension LauncherModel {
         GraphicsPreset(
             id: "potato", name: "Potato", symbol: "leaf.fill",
             blurb: "Everything turned down for older Macs.",
-            highlights: ["60 FPS cap", "Lowest textures", "No post effects", "No grass", "Gray sky"],
+            highlights: ["60 FPS cap", "Lowest textures", "No post effects", "No grass", "Gray sky"], speed: 5, looks: 1,
             flags: [
                 "DFIntTaskSchedulerTargetFps": .int(60),
                 "FIntDebugForceMSAASamples": .int(1),
@@ -161,13 +178,57 @@ extension LauncherModel {
         return parts.joined(separator: ", ").prefix(1).uppercased() + parts.joined(separator: ", ").dropFirst()
     }
 
+    // MARK: - Loadout
+
+    var loadout: [LoadoutItem] {
+        var items: [LoadoutItem] = []
+        let preset = activePreset
+        items.append(LoadoutItem(
+            id: "preset", symbol: preset?.symbol ?? "slider.horizontal.3",
+            text: preset.map { $0.id == "default" ? "Default graphics" : "\($0.name) preset" } ?? "Custom graphics",
+            active: preset?.id != "default", destination: .graphics(.presets)))
+        if case .int(let fps)? = flags["DFIntTaskSchedulerTargetFps"] {
+            items.append(LoadoutItem(id: "fps", symbol: "speedometer",
+                                     text: fps >= 9999 ? "Unlimited FPS" : "\(fps) FPS cap",
+                                     active: true, destination: .graphics(.engine)))
+        }
+        items.append(LoadoutItem(id: "cursor", symbol: "cursorarrow",
+                                 text: cursorStyle == .standard ? "Default cursor" : "\(cursorLabel) cursor",
+                                 active: cursorStyle != .standard, destination: .style(.cursor)))
+        items.append(LoadoutItem(id: "font", symbol: "textformat",
+                                 text: customFontName ?? "Default font",
+                                 active: customFontName != nil, destination: .style(.font)))
+        items.append(LoadoutItem(id: "sound", symbol: "speaker.wave.2.fill",
+                                 text: deathSound == .standard ? "Default death sound" : deathSoundLabel,
+                                 active: deathSound != .standard, destination: .style(.sound)))
+        let extras = extraModCount
+        if extras > 0 {
+            items.append(LoadoutItem(id: "mods", symbol: "puzzlepiece.extension.fill",
+                                     text: "\(extras) extra mod file\(extras == 1 ? "" : "s")",
+                                     active: true, destination: .style(.files)))
+        }
+        let custom = flags.keys.filter { !Self.presetKeys.contains($0) }.count
+        if custom > 0 {
+            items.append(LoadoutItem(id: "flags", symbol: "flag.fill",
+                                     text: "\(custom) custom FastFlag\(custom == 1 ? "" : "s")",
+                                     active: true, destination: .graphics(.flags)))
+        }
+        return items
+    }
+
     // MARK: - Mods summary
 
     var activeModCount: Int {
-        var count = 0
+        var count = extraModCount
         if deathSound != .standard { count += 1 }
         if cursorStyle != .standard { count += 1 }
         if customFontURL != nil { count += 1 }
+        return count
+    }
+
+    /// Files in the mods folder that aren't managed by the Style page.
+    var extraModCount: Int {
+        var count = 0
         let known = Set([Self.deathSoundPath] + Self.cursorPaths + Self.fontPaths)
         if let e = FileManager.default.enumerator(at: modsURL, includingPropertiesForKeys: [.isRegularFileKey]) {
             let base = modsURL.standardizedFileURL.path + "/"

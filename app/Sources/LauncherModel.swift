@@ -86,8 +86,18 @@ final class LauncherModel: ObservableObject {
     @Published var animatedBackground: Bool {
         didSet { UserDefaults.standard.set(animatedBackground, forKey: "animatedBackground") }
     }
+    @Published var showStuds: Bool {
+        didSet { UserDefaults.standard.set(showStuds, forKey: "showStuds") }
+    }
+    @Published var celebrateLaunches: Bool {
+        didSet { UserDefaults.standard.set(celebrateLaunches, forKey: "celebrateLaunches") }
+    }
+    /// Bumped after each successful launch to fire the confetti.
+    @Published var celebrations = 0
     /// Fonts installed on this Mac that Roblox can load (.ttf/.otf).
     @Published var macFonts: [MacFont] = []
+    /// Called a moment after Roblox quits, e.g. to pick up new games from its logs.
+    var onRobloxExit: (() -> Void)?
 
     private var process: Process?
     private var observers: [NSObjectProtocol] = []
@@ -105,10 +115,13 @@ final class LauncherModel: ObservableObject {
     }
 
     init() {
-        UserDefaults.standard.register(defaults: ["closeOnLaunch": true, "animatedBackground": true])
+        UserDefaults.standard.register(defaults: ["closeOnLaunch": true, "animatedBackground": true,
+                                                  "showStuds": true, "celebrateLaunches": true])
         closeOnLaunch = UserDefaults.standard.bool(forKey: "closeOnLaunch")
         theme = LauncherTheme(rawValue: UserDefaults.standard.string(forKey: "theme") ?? "") ?? .sunset
         animatedBackground = UserDefaults.standard.bool(forKey: "animatedBackground")
+        showStuds = UserDefaults.standard.bool(forKey: "showStuds")
+        celebrateLaunches = UserDefaults.standard.bool(forKey: "celebrateLaunches")
         try? FileManager.default.createDirectory(at: modsURL, withIntermediateDirectories: true)
         loadFlags()
         refreshRunning()
@@ -139,6 +152,9 @@ final class LauncherModel: ObservableObject {
     func refreshRunning() {
         let running = NSWorkspace.shared.runningApplications.contains {
             $0.bundleIdentifier == Self.robloxBundleID && !$0.isTerminated
+        }
+        if robloxRunning && !running {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in self?.onRobloxExit?() }
         }
         robloxRunning = running
         if !running { needsRestart = false }
@@ -194,8 +210,9 @@ final class LauncherModel: ObservableObject {
         runTask(args, title: url == nil ? "Starting Roblox" : "Joining game") { [weak self] ok in
             guard let self, ok else { return }
             self.stage = url == nil ? "Roblox started" : "Joining game"
+            if self.celebrateLaunches { self.celebrations += 1 }
             if quitAfter || self.closeOnLaunch {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { NSApp.terminate(nil) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) { NSApp.terminate(nil) }
             }
         }
     }

@@ -31,6 +31,12 @@ lipo -create -output "$app/Contents/MacOS/RobloxBootstrapper" \
   "$out/RobloxBootstrapper-arm64" "$out/RobloxBootstrapper-x86_64"
 rm -f "$out"/RobloxBootstrapper-*
 
+echo "==> Drawing the app icon"
+swiftc -O "$here/make-icon.swift" -o "$out/make-icon"
+"$out/make-icon" "$out/AppIcon.iconset"
+iconutil -c icns "$out/AppIcon.iconset" -o "$app/Contents/Resources/AppIcon.icns"
+rm -rf "$out/make-icon" "$out/AppIcon.iconset"
+
 sed "s/__VERSION__/$version/g" "$here/Info.plist" > "$app/Contents/Info.plist"
 cp "$root/roblox-bootstrapper" "$app/Contents/Resources/roblox-bootstrapper"
 chmod +x "$app/Contents/Resources/roblox-bootstrapper"
@@ -45,7 +51,7 @@ case "${1:-}" in
     mkdir -p "$HOME/Applications"
     rm -rf "$dest"
     ditto "$app" "$dest"
-    # register adds Roblox's icon, re-signs, and takes over roblox:// links.
+    # register re-signs the app and takes over roblox:// links.
     "$dest/Contents/Resources/roblox-bootstrapper" register
     ;;
   --zip)

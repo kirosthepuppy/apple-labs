@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-VERSION="1.2.0"
+VERSION="1.3.0"
 
 # ---------------------------------------------------------------------------
 # Configuration (all overridable through the environment)
@@ -526,15 +526,16 @@ EOF
 # as opposed to the AppleScript applet fallback.
 handler_is_launcher() { [ -x "$HANDLER_APP/Contents/MacOS/RobloxBootstrapper" ]; }
 
-# Give the handler app Roblox's icon, re-sign it, and make it the default
-# handler for Roblox links.
+# Re-sign the handler app and make it the default handler for Roblox links.
+# The AppleScript applet has no icon of its own, so it borrows Roblox's; the
+# launcher app keeps its own.
 finish_handler_app() {
   local plist="$HANDLER_APP/Contents/Info.plist" icon_name icon
   icon_name="$(defaults read "$plist" CFBundleIconFile 2>/dev/null || echo applet)"
   icon_name="${icon_name%.icns}"
   icon="$(app_path)/Contents/Resources/$(defaults read "$(app_path)/Contents/Info.plist" CFBundleIconFile 2>/dev/null || echo AppIcon)"
   case "$icon" in *.icns) ;; *) icon="$icon.icns" ;; esac
-  if [ -f "$icon" ]; then
+  if ! handler_is_launcher && [ -f "$icon" ]; then
     cp "$icon" "$HANDLER_APP/Contents/Resources/$icon_name.icns"
     rm -f "$HANDLER_APP/Contents/Resources/Assets.car"
     /usr/libexec/PlistBuddy -c "Delete :CFBundleIconName" "$plist" 2>/dev/null || true

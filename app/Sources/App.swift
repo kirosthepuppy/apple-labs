@@ -15,6 +15,8 @@ enum Main {
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let model = LauncherModel()
+    let router = Router()
+    lazy var library = GameLibrary(supportURL: model.supportURL)
     private var mainWindow: NSWindow?
     private var linkWindow: NSWindow?
     private var handledLink = false
@@ -31,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         model.refreshStatus()
+        model.onRobloxExit = { [weak self] in self?.library.refresh() }
         let isDefaultLaunch = notification.userInfo?[NSApplication.launchIsDefaultUserInfoKey] as? Bool ?? true
         if isDefaultLaunch {
             showMainWindow()
@@ -46,6 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func handleURLEvent(_ event: NSAppleEventDescriptor, withReply reply: NSAppleEventDescriptor) {
         guard let link = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue else { return }
         handledLink = true
+        library.lookUpLinkGame(link: link)
         if let mainWindow, mainWindow.isVisible {
             mainWindow.makeKeyAndOrderFront(nil)
             model.launch(url: link)
@@ -74,7 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         linkWindow = nil
         if mainWindow == nil {
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 1100, height: 720),
+                contentRect: NSRect(x: 0, y: 0, width: 1140, height: 780),
                 styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                 backing: .buffered, defer: false)
             window.title = "Roblox Bootstrapper"
@@ -84,11 +88,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.appearance = NSAppearance(named: .darkAqua)
             window.backgroundColor = .black
             window.contentViewController = NSHostingController(
-                rootView: RootView().environmentObject(model))
+                rootView: RootView()
+                    .environmentObject(model)
+                    .environmentObject(router)
+                    .environmentObject(library))
             window.setFrameAutosaveName("LauncherWindow")
             window.isReleasedWhenClosed = false
             window.delegate = self
-            if !window.setFrameUsingName("MainWindow") { window.center() }
+            if !window.setFrameUsingName("LauncherWindow") { window.center() }
             mainWindow = window
         }
         mainWindow?.makeKeyAndOrderFront(nil)
@@ -98,7 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func showLinkWindow() {
         guard linkWindow == nil else { return }
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 160),
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 170),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered, defer: false)
         window.title = "Roblox Bootstrapper"
@@ -108,7 +115,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.appearance = NSAppearance(named: .darkAqua)
         window.backgroundColor = .black
         window.contentViewController = NSHostingController(
-            rootView: LinkLaunchView().environmentObject(model))
+            rootView: LinkLaunchView()
+                .environmentObject(model)
+                .environmentObject(library))
         window.isReleasedWhenClosed = false
         window.center()
         linkWindow = window
@@ -144,6 +153,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         main.addItem(withTitle: "Edit", action: nil, keyEquivalent: "").submenu = edit
 
+        let go = NSMenu(title: "Go")
+        for page in Page.allCases {
+            let item = go.addItem(withTitle: page.title, action: #selector(goToPage(_:)), keyEquivalent: String(page.shortcut))
+            item.target = self
+            item.representedObject = page.rawValue
+        }
+        main.addItem(withTitle: "Go", action: nil, keyEquivalent: "").submenu = go
+
         let window = NSMenu(title: "Window")
         window.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         window.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
@@ -151,6 +168,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.windowsMenu = window
 
         return main
+    }
+
+    @objc private func goToPage(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let page = Page(rawValue: raw) else { return }
+        showMainWindow()
+        router.go(page)
     }
 
     @objc private func showAbout() {

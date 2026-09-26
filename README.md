@@ -39,21 +39,21 @@ If your shell can't find `roblox-bootstrapper`, add `~/.local/bin` to your PATH:
 
 ## The launcher app
 
-A dark, glassy launcher with a drifting colour background and springy
-animations throughout (all driven by Core Animation, so it idles at ~0% CPU;
-Reduce Motion is respected).
+A dark, toy-like launcher: a floating rail with a stretchy selection blob,
+chunky 3D buttons that press in and spring back, and a slowly drifting grid of
+Roblox-style studs over coloured glows. Every continuous animation runs on
+Core Animation, so it idles at ~0% CPU, and Reduce Motion is respected.
 
-| Page          | What it does |
-|---------------|--------------|
-| Home          | Big Play button with live update progress, the installed version, Restart Roblox after changes, and a "Your setup" overview that links to every page. |
-| Presets       | One-click graphics profiles: Roblox default, Balanced, Performance, Quality and Potato. |
-| Cursor        | Default, the classic black arrow, or your own image, with previews. |
-| Font          | Any .ttf/.otf font on your Mac (searchable, shown in its own typeface) or a font file, with a live preview. |
-| Game settings | Frame rate limit, anti-aliasing, texture quality, post-processing, grass and sky, plus a full FastFlag editor with JSON import/export (works with Bloxstrap/Fishstrap exports). |
-| Mods          | Death sound (default, classic "oof", or your own, with previews) and the mods folder. |
-| Appearance    | Five colour themes and the animated background. |
-| Settings      | Close on launch, website links, channel, install location, build, reinstall. |
-| Help          | Common questions, the log, and a link to report problems. |
+| Section  | What it does |
+|----------|--------------|
+| Play     | Greets you with your Roblox avatar, shows your last game's artwork and live player count with a big Play button that rejoins it (with update progress and a confetti burst), a "Jump back in" row of recent games, and your loadout at a glance. |
+| Graphics | **Presets** (Roblox default, Balanced, Performance, Quality, Potato, with speed/looks meters), **Engine** settings (frame rate, anti-aliasing, textures, post-processing, grass, sky), and a full **FastFlags** editor with search and JSON import/export (works with Bloxstrap/Fishstrap exports). |
+| Style    | **Cursor** (default, classic arrow, or your own image, with a live preview), **Font** (any .ttf/.otf on your Mac, each shown in its own typeface), **Sound** (default, classic "oof", or your own, with previews), and the **Files** mods folder. |
+| Launcher | **Look** (five themes, moving background, studs, confetti), **General** (close on launch, website links, recent games, channel, install location, build, reinstall), and **Help**. |
+
+Recent games come from Roblox's own log files on your Mac; their names,
+pictures and player counts come from Roblox's public web APIs. Turn this off
+under Launcher › General. ⌘1–⌘4 switch sections.
 
 When you click **Play** on the Roblox website, the launcher shows a small
 progress window, updates and applies your mods and flags, then hands the game

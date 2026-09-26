@@ -126,6 +126,7 @@ jobs:
           lipo -archs "$APP/Contents/MacOS/RobloxBootstrapper" | grep -q arm64
           lipo -archs "$APP/Contents/MacOS/RobloxBootstrapper" | grep -q x86_64
           codesign --verify --strict "$APP"
+          test -s "$APP/Contents/Resources/AppIcon.icns"
           cmp "$APP/Contents/Resources/roblox-bootstrapper" roblox-bootstrapper
           test -f app/build/Roblox-Bootstrapper.zip
 
@@ -139,8 +140,11 @@ jobs:
         run: |
           mkdir -p "$HOME/Applications"
           ditto "app/build/Roblox Bootstrapper.app" "$HOME/Applications/Roblox Bootstrapper.app"
+          icon_before="$(md5 -q "$HOME/Applications/Roblox Bootstrapper.app/Contents/Resources/AppIcon.icns")"
           $BS register
           test -x "$HOME/Applications/Roblox Bootstrapper.app/Contents/MacOS/RobloxBootstrapper"
+          # The launcher keeps its own icon (only the applet borrows Roblox's).
+          [ "$(md5 -q "$HOME/Applications/Roblox Bootstrapper.app/Contents/Resources/AppIcon.icns")" = "$icon_before" ]
           handler() {
             osascript -l JavaScript -e 'ObjC.import("CoreServices"); function run(a) { return ObjC.unwrap(ObjC.castRefToObject($.LSCopyDefaultHandlerForURLScheme($(a[0])))); }' "$1"
           }
