@@ -102,9 +102,12 @@ extension LauncherModel {
     /// Flags earlier versions of this launcher set that Roblox now ignores.
     static let retiredFlags = ["DFIntTaskSchedulerTargetFps", "FFlagDisablePostFx", "FIntRenderGrassDetailStrands"]
 
+    /// Allowed flags that crash the Mac client when joining a game (seen with
+    /// Roblox 0.740 on Apple silicon: a gray sky or zero grass distance).
+    static let crashingFlags: Set<String> = ["FFlagDebugSkyGray", "FIntFRMMinGrassDistance", "FIntFRMMaxGrassDistance"]
+
     static let presetKeys: Set<String> = [
         "FIntDebugForceMSAASamples", "DFFlagTextureQualityOverrideEnabled", "DFIntTextureQualityOverride",
-        "FFlagDebugSkyGray", "FIntFRMMinGrassDistance", "FIntFRMMaxGrassDistance",
     ]
 
     static let presets: [GraphicsPreset] = [
@@ -124,13 +127,11 @@ extension LauncherModel {
         GraphicsPreset(
             id: "performance", name: "Performance", symbol: "bolt.fill",
             blurb: "Less to draw, for steadier frame rates.",
-            highlights: ["No anti-aliasing", "Low textures", "No grass"], speed: 5, looks: 2,
+            highlights: ["No anti-aliasing", "Low textures"], speed: 5, looks: 2,
             flags: [
                 "FIntDebugForceMSAASamples": .int(1),
                 "DFFlagTextureQualityOverrideEnabled": .bool(true),
                 "DFIntTextureQualityOverride": .int(1),
-                "FIntFRMMinGrassDistance": .int(0),
-                "FIntFRMMaxGrassDistance": .int(0),
             ]),
         GraphicsPreset(
             id: "quality", name: "Quality", symbol: "sparkles",
@@ -144,14 +145,11 @@ extension LauncherModel {
         GraphicsPreset(
             id: "potato", name: "Potato", symbol: "leaf.fill",
             blurb: "Everything turned down for older Macs.",
-            highlights: ["No anti-aliasing", "Lowest textures", "No grass", "Gray sky"], speed: 5, looks: 1,
+            highlights: ["No anti-aliasing", "Lowest textures"], speed: 5, looks: 1,
             flags: [
                 "FIntDebugForceMSAASamples": .int(1),
                 "DFFlagTextureQualityOverrideEnabled": .bool(true),
                 "DFIntTextureQualityOverride": .int(0),
-                "FFlagDebugSkyGray": .bool(true),
-                "FIntFRMMinGrassDistance": .int(0),
-                "FIntFRMMaxGrassDistance": .int(0),
             ]),
     ]
 
@@ -173,8 +171,6 @@ extension LauncherModel {
         let names: [(String, String)] = [
             ("FIntDebugForceMSAASamples", "anti-aliasing"),
             ("DFIntTextureQualityOverride", "textures"),
-            ("FIntFRMMaxGrassDistance", "grass"),
-            ("FFlagDebugSkyGray", "sky"),
         ]
         let set = names.filter { flags[$0.0] != nil }.map(\.1)
         let others = flags.keys.filter { !Self.presetKeys.contains($0) }.count

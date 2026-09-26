@@ -251,7 +251,10 @@ apply_mods() {
       cp -p "$res/$rel" "$MODS_BACKUP_DIR/$rel"
     fi
     mkdir -p "$(dirname "$res/$rel")"
-    cp "$stage/$rel" "$res/$rel"
+    # Copy beside it and rename over it: a Roblox left running (it stays in the
+    # menu bar) may have the old file mapped, and overwriting that in place
+    # crashes it.
+    cp "$stage/$rel" "$res/$rel.applelabs-new" && mv -f "$res/$rel.applelabs-new" "$res/$rel"
   done < "$MODS_MANIFEST.new"
 
   mv "$MODS_MANIFEST.new" "$MODS_MANIFEST"
