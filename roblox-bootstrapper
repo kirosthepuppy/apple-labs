@@ -308,12 +308,16 @@ update_if_needed() {
   latest="$(fetch_latest)"
   hash="${latest%% *}"; display="${latest#* }"
   current="$(installed_version)"
+  if [ -z "$current" ] && [ -d "$(app_path)" ] && [ "$(installed_display_version)" = "$display" ]; then
+    # Adopt an install we didn't make when it is already the latest version.
+    mkdir -p "$SUPPORT_DIR"; printf '%s\n' "$hash" > "$STATE_FILE"; current="$hash"
+  fi
   if [ -z "$force" ] && [ "$current" = "$hash" ]; then
     return 1
   fi
   if [ -n "$current" ]; then info "Updating Roblox $(installed_display_version) → $display"
   else info "Installing Roblox $display"; fi
-  notify "Roblox Bootstrapper" "Installing Roblox $display…"
+  notify "Roblox Bootstrapper" "Installing Roblox ${display}…"
   install_version "$hash" "$display"
   return 0
 }
@@ -482,7 +486,7 @@ cmd_status() {
   else printf '  Installed      no\n'; fi
   if latest="$(fetch_latest 2>/dev/null)"; then
     printf '  Latest         %s %s(%s)%s\n' "${latest#* }" "$C_DIM" "${latest%% *}" "$C_OFF"
-    if [ "$cur" = "${latest%% *}" ]; then printf '  Status         %sup to date%s\n' "$C_GRN" "$C_OFF"
+    if [ "$cur" = "${latest%% *}" ] || { [ -z "$cur" ] && [ "$(installed_display_version)" = "${latest#* }" ]; }; then printf '  Status         %sup to date%s\n' "$C_GRN" "$C_OFF"
     else printf '  Status         %supdate available%s\n' "$C_YEL" "$C_OFF"; fi
   else
     printf '  Latest         (offline)\n'
