@@ -533,7 +533,9 @@ namespace AppleLabs
                              text.StartsWith("roblox:", StringComparison.OrdinalIgnoreCase));
 
         /// <summary>Starts the installed Roblox, joining <paramref name="link"/> when given.</summary>
-        public static void Start(string link = null)
+        public static void Start(string link = null) => StartProcess(link)?.Dispose();
+
+        public static Process StartProcess(string link = null)
         {
             var dir = InstalledDir ?? throw new InvalidOperationException("Roblox isn't installed yet.");
             if (link != null && !IsRobloxLink(link)) throw new ArgumentException("Not a Roblox link: " + link);
@@ -543,8 +545,8 @@ namespace AppleLabs
                 UseShellExecute = false,
                 Arguments = link == null ? "--app" : "\"" + link.Replace("\"", "") + "\"",
             };
-            Log.Info(link == null ? "starting Roblox" : "launch url");
-            Process.Start(info)?.Dispose();
+            Log.Info((link == null ? "starting Roblox: " : "launch url: ") + info.FileName + " " + info.Arguments);
+            return Process.Start(info);
         }
 
         [System.Runtime.InteropServices.DllImport("user32.dll")]

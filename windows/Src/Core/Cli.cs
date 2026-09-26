@@ -28,6 +28,7 @@ namespace AppleLabs
   --cli mods list | apply | clear | path
   --cli accounts list [--json] | save | use WHO | add | remove WHO
   --cli register | unregister            Send roblox:// links through this exe, or stop
+  --cli uninstall [--purge]              Remove the launcher (and with --purge, all its data)
   --cli selftest [FOLDER]                Open every page and save screenshots
   --cli version";
 
@@ -78,6 +79,10 @@ namespace AppleLabs
                 case "unregister":
                     Roblox.UnregisterLinks(App.ExePath);
                     Console.WriteLine("roblox:// links open Roblox directly again");
+                    return 0;
+                case "uninstall":
+                    Setup.Uninstall(purge: rest.Contains("--purge"));
+                    Console.WriteLine("Apple Labs is uninstalled" + (rest.Contains("--purge") ? " and its data removed" : ""));
                     return 0;
                 case "version":
                     Console.WriteLine(App.Version);
@@ -150,7 +155,15 @@ namespace AppleLabs
                 Console.Error.WriteLine("warning: couldn't check for updates (" + e.Message + "); starting what's installed");
                 Roblox.ApplyCustomizations();
             }
-            Roblox.Start(link);
+            using (var process = Roblox.StartProcess(link))
+            {
+                // Catch a Roblox that quits straight away, which otherwise looks like success.
+                if (process != null && process.WaitForExit(8000))
+                {
+                    Console.Error.WriteLine($"error: Roblox exited right away with code {process.ExitCode} (0x{process.ExitCode:X8})");
+                    return 1;
+                }
+            }
             Console.WriteLine(link == null ? "Roblox started" : "Joining game");
             return 0;
         }

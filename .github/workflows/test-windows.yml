@@ -35,6 +35,10 @@ jobs:
           . windows/tests/cli.ps1
           Invoke-AppleLabs selftest "$env:RUNNER_TEMP\screens" | Out-Null
 
+      - name: Probe annotation size
+        run: |
+          foreach ($n in 1000, 4000, 16000, 60000) { Write-Host "::notice title=probe $n::$('A' * $n)" }
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -133,9 +137,17 @@ jobs:
       - name: Launch Roblox
         run: |
           . windows/tests/cli.ps1
-          Invoke-AppleLabs launch | Out-Null
+          function Show-RobloxLog {
+            $log = Get-ChildItem "$env:LOCALAPPDATA\Roblox\logs" -Filter *.log -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
+            if (-not $log) { Write-Host "::error::Roblox wrote no log"; return }
+            $lines = Get-Content $log.FullName
+            $lines | Select-Object -Last 60
+            $lines | Where-Object { $_ -match 'Error|error|fail|Fail|exit|Exit|crash|WebView' } | Select-Object -Last 8 | ForEach-Object { Write-Host "::error::$($_.Substring(0, [Math]::Min(400, $_.Length)))" }
+          }
+          try { Invoke-AppleLabs launch | Out-Null } catch { Show-RobloxLog; throw }
           $started = $false
           foreach ($i in 1..60) { if (Get-Process RobloxPlayerBeta -ErrorAction SilentlyContinue) { $started = $true; break }; Start-Sleep 1 }
+          if (-not $started) { Show-RobloxLog }
           Assert $started "Roblox did not start"
           Stop-Process -Name RobloxPlayerBeta -Force -ErrorAction SilentlyContinue
           Start-Sleep 3
@@ -165,6 +177,37 @@ jobs:
           . windows/tests/cli.ps1
           Invoke-AppleLabs unregister | Out-Null
           Assert (-not (Get-Status).linkHandler) "links still point at the launcher"
+
+      - name: Install the launcher like a user would
+        env:
+          APPLELABS_PORTABLE: ""
+        run: |
+          . windows/tests/cli.ps1
+          # Started from anywhere, it copies itself into place and opens from there.
+          Start-Process out\AppleLabs.exe
+          $installed = "$env:APPLELABS_HOME\Apple Labs.exe"
+          $shortcut = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Apple Labs.lnk"
+          $apps = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\AppleLabs'
+          foreach ($i in 1..30) { if ((Test-Path $installed) -and (Test-Path $shortcut) -and (Test-Path $apps) -and (Get-Process 'Apple Labs' -ErrorAction SilentlyContinue)) { break }; Start-Sleep 1 }
+          Assert (Test-Path $installed) "the launcher didn't copy itself into place"
+          Assert (Test-Path $shortcut) "no Start menu shortcut"
+          Assert (Test-Path $apps) "no entry in Settings > Apps"
+          Assert (Get-Process 'Apple Labs' -ErrorAction SilentlyContinue) "the installed copy didn't open"
+          $command = (Get-ItemProperty 'HKCU:\Software\Classes\roblox-player\shell\open\command').'(default)'
+          Assert ($command -like '*Apple Labs.exe*') "links should open the installed copy: $command"
+          Stop-Process -Name 'Apple Labs' -Force
+          Start-Sleep 2
+
+      - name: Uninstall
+        run: |
+          . windows/tests/cli.ps1
+          Invoke-AppleLabs uninstall | Out-Null
+          Start-Sleep 6
+          Assert (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Apple Labs.lnk")) "the Start menu shortcut is still there"
+          Assert (-not (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\AppleLabs')) "the Apps entry is still there"
+          Assert (-not (Test-Path "$env:APPLELABS_HOME\Apple Labs.exe")) "the installed exe is still there"
+          Assert (-not (Test-Path "$env:APPLELABS_HOME\Versions")) "Roblox is still installed"
+          Assert (-not ((Get-ItemProperty 'HKCU:\Software\Classes\roblox-player\shell\open\command' -ErrorAction SilentlyContinue).'(default)' -like '*Apple Labs*')) "links still point at the launcher"
 
       - name: Package
         run: |

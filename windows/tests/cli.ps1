@@ -14,7 +14,10 @@ function Invoke-AppleLabs {
     if ($text) { Write-Host $text }
     if ($problems) { Write-Host $problems }
     if ($p.ExitCode -ne 0) {
-        Write-Host "::error::Apple Labs --cli $($args -join ' ') failed: $problems $text"
+        # Each failing line becomes its own annotation, readable on the run's summary page.
+        $lines = @("$problems`n$text" -split "`r?`n" | Where-Object { $_ -match 'FAIL|error|exception|at AppleLabs\.' } | Select-Object -First 9)
+        foreach ($line in $lines) { Write-Host "::error::$($line.Trim())" }
+        if ($lines.Count -eq 0) { Write-Host "::error::Apple Labs --cli $($args -join ' ') exited with $($p.ExitCode)" }
         throw "Apple Labs --cli $($args -join ' ') exited with $($p.ExitCode)"
     }
     return $text

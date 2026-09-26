@@ -352,19 +352,6 @@ namespace AppleLabs
 
         static UIElement General(LauncherModel m)
         {
-            var channel = new TextBox
-            {
-                Style = (Style)Application.Current.FindResource("Field"),
-                Text = m.Channel,
-                Width = 140,
-                TextAlignment = TextAlignment.Right,
-                FontFamily = new FontFamily("Cascadia Mono, Consolas"),
-                FontWeight = FontWeights.SemiBold,
-                Tag = "LIVE",
-            };
-            channel.KeyDown += (s, e) => { if (e.Key == Key.Enter) m.Channel = channel.Text; };
-            channel.LostKeyboardFocus += (s, e) => m.Channel = channel.Text;
-
             var behaviour = K.Group(
                 K.SettingRow("Close when Roblox starts", "Off: the launcher stays open while you play", K.Switch(m.CloseOnLaunch, v => m.CloseOnLaunch = v)),
                 K.SettingRow("Handle website links", "Play buttons on roblox.com go through the launcher, so updates, mods and settings always apply",
@@ -374,6 +361,19 @@ namespace AppleLabs
 
             var roblox = new Live(m, new[] { nameof(LauncherModel.Installed), nameof(LauncherModel.Busy), nameof(LauncherModel.Progress), nameof(LauncherModel.RobloxRunning) }, () =>
             {
+                // Made fresh on each rebuild: an element can only sit in one place.
+                var channel = new TextBox
+                {
+                    Style = (Style)Application.Current.FindResource("Field"),
+                    Text = m.Channel,
+                    Width = 140,
+                    TextAlignment = TextAlignment.Right,
+                    FontFamily = new FontFamily("Cascadia Mono, Consolas"),
+                    FontWeight = FontWeights.SemiBold,
+                    Tag = "LIVE",
+                };
+                channel.KeyDown += (s, e) => { if (e.Key == Key.Enter) m.Channel = channel.Text; };
+                channel.LostKeyboardFocus += (s, e) => m.Channel = channel.Text;
                 var reinstall = K.Button(K.Label("\uE896", "Reinstall"), m.Reinstall, K.Size.Small, glass: true);
                 reinstall.IsEnabled = !m.Busy;
                 var rows = new List<UIElement>
