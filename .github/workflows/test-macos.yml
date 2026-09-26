@@ -124,7 +124,8 @@ jobs:
             sleep 1.1
             printf '{"UserId":"%s","Username":"%s","DisplayName":"%s"}' "$2" "$1" "$3" > "$T/appStorage.json"
           }
-          $BS accounts list | grep -q "No saved accounts"
+          $BS accounts list > accounts.txt
+          grep -q "No saved accounts" accounts.txt
           signin alpha 111 Alpha
           $BS accounts save
           # Adding signs Roblox out locally; the new sign-in is saved when Roblox quits.
