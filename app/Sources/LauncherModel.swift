@@ -1,4 +1,5 @@
 import AppKit
+import CoreImage
 import CoreServices
 import Foundation
 import SwiftUI
@@ -57,6 +58,15 @@ enum DeathSound: String, CaseIterable, Identifiable {
 enum CursorStyle: String, CaseIterable, Identifiable {
     case standard, classic, custom
     var id: String { rawValue }
+}
+
+struct ModsSnapshot {
+    var deathSound = DeathSound.standard
+    var cursorStyle = CursorStyle.standard
+    var customFontURL: URL?
+    var customFontName: String?
+    var fileCount = 0
+    var extraCount = 0
 }
 
 /// State shared by every screen. All mutation happens on the main thread.
@@ -119,6 +129,18 @@ final class LauncherModel: ObservableObject {
     @Published var celebrateLaunches: Bool {
         didSet { UserDefaults.standard.set(celebrateLaunches, forKey: "celebrateLaunches") }
     }
+    /// A picture shown behind the launcher while the Custom theme is on.
+    @Published private(set) var backgroundImage: NSImage?
+    /// How much the background picture is darkened, 0–0.8.
+    @Published var backgroundDim: Double {
+        didSet { UserDefaults.standard.set(backgroundDim, forKey: "backgroundDim") }
+    }
+    @Published var backgroundBlur: Bool {
+        didSet {
+            UserDefaults.standard.set(backgroundBlur, forKey: "backgroundBlur")
+            loadBackgroundImage()
+        }
+    }
     /// Bumped after each successful launch to fire the confetti.
     @Published var celebrations = 0
     /// Fonts installed on this Mac that Roblox can load (.ttf/.otf).
@@ -127,6 +149,8 @@ final class LauncherModel: ObservableObject {
     var onRobloxExit: (() -> Void)?
 
     private var process: Process?
+    private var modsCache: (key: String, snapshot: ModsSnapshot)?
+    private var modsReadGeneration = 0
     private var observers: [NSObjectProtocol] = []
 
     let supportURL: URL = {
@@ -148,8 +172,14 @@ final class LauncherModel: ObservableObject {
 
     init() {
         let d = UserDefaults.standard
-        d.register(defaults: ["closeOnLaunch": true, "animatedBackground": true,
-                              "showStuds": true, "celebrateLaunches": true, "uiScale": 1.0])
+        d.register(defaults: ["closeOnLaunch": false, "animatedBackground": true,
+                              "showStuds": true, "celebrateLaunches": true, "uiScale": 1.0,
+                              "backgroundDim": 0.35, "backgroundBlur": false])
+        // The launcher used to close itself once Roblox started; it stays open now.
+        if !d.bool(forKey: "stayOpenMigrated") {
+            d.set(false, forKey: "closeOnLaunch")
+            d.set(true, forKey: "stayOpenMigrated")
+        }
         closeOnLaunch = d.bool(forKey: "closeOnLaunch")
         themeID = ThemeID(rawValue: d.string(forKey: "themeID") ?? "") ?? .obsidian
         var custom = Theme.preset(.custom)
@@ -167,8 +197,11 @@ final class LauncherModel: ObservableObject {
         animatedBackground = UserDefaults.standard.bool(forKey: "animatedBackground")
         showStuds = UserDefaults.standard.bool(forKey: "showStuds")
         celebrateLaunches = UserDefaults.standard.bool(forKey: "celebrateLaunches")
+        backgroundDim = d.double(forKey: "backgroundDim")
+        backgroundBlur = d.bool(forKey: "backgroundBlur")
         try? FileManager.default.createDirectory(at: modsURL, withIntermediateDirectories: true)
         loadFlags()
+        loadBackgroundImage()
         refreshRunning()
         refreshLinkHandler()
 
@@ -205,6 +238,65 @@ final class LauncherModel: ObservableObject {
         if !running { needsRestart = false }
     }
 
+    // MARK: - Background image
+
+    /// The saved copy of the chosen background picture, if any.
+    private var backgroundFileURL: URL? {
+        let files = (try? FileManager.default.contentsOfDirectory(at: supportURL, includingPropertiesForKeys: nil)) ?? []
+        return files.first { $0.deletingPathExtension().lastPathComponent == "Background" }
+    }
+
+    /// Copies `file` into the launcher's folder and shows it, or removes the
+    /// picture when `file` is nil.
+    func setBackgroundImage(_ file: URL?) {
+        let fm = FileManager.default
+        if let old = backgroundFileURL { try? fm.removeItem(at: old) }
+        if let file {
+            let dest = supportURL.appendingPathComponent("Background").appendingPathExtension(file.pathExtension.lowercased())
+            do {
+                try fm.createDirectory(at: supportURL, withIntermediateDirectories: true)
+                try fm.copyItem(at: file, to: dest)
+            } catch {
+                errorMessage = "Could not use that picture: \(error.localizedDescription)"
+            }
+        }
+        loadBackgroundImage()
+    }
+
+    /// Decodes, shrinks and (optionally) blurs the picture off the main
+    /// thread, so it is prepared once rather than on every redraw.
+    private func loadBackgroundImage() {
+        guard let url = backgroundFileURL else {
+            backgroundImage = nil
+            return
+        }
+        let blur = backgroundBlur
+        DispatchQueue.global(qos: .userInitiated).async {
+            let image = Self.prepareBackground(url, blur: blur)
+            DispatchQueue.main.async {
+                // A newer choice may have landed while this one was decoding.
+                guard self.backgroundFileURL == url, self.backgroundBlur == blur else { return }
+                if image == nil { self.errorMessage = "Could not read that picture." }
+                self.backgroundImage = image
+            }
+        }
+    }
+
+    private static func prepareBackground(_ url: URL, blur: Bool) -> NSImage? {
+        guard var image = CIImage(contentsOf: url, options: [.applyOrientationProperty: true]) else { return nil }
+        let longest = max(image.extent.width, image.extent.height)
+        if longest > 2560 {
+            let scale = 2560 / longest
+            image = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        }
+        let extent = image.extent
+        if blur {
+            image = image.clampedToExtent().applyingGaussianBlur(sigma: 28).cropped(to: extent)
+        }
+        guard let cg = CIContext().createCGImage(image, from: extent) else { return nil }
+        return NSImage(cgImage: cg, size: NSSize(width: extent.width, height: extent.height))
+    }
+
     // MARK: - Tasks
 
     /// Runs a long script command, feeding its output into `stage`/`progress`.
@@ -231,15 +323,20 @@ final class LauncherModel: ObservableObject {
     }
 
     private func handle(line: String) {
+        // Only publish real changes: every publish redraws the whole window,
+        // and downloads report progress many times per percent.
         if line.hasPrefix("@progress ") {
             if let pct = Double(line.dropFirst("@progress ".count)) {
-                progress = min(max(pct / 100, 0), 1)
+                let value = min(max(pct.rounded() / 100, 0), 1)
+                if value != progress { progress = value }
             }
         } else if line.hasPrefix("==> ") {
-            stage = String(line.dropFirst(4))
-            if !stage.hasPrefix("Downloading") { progress = nil }
+            let next = String(line.dropFirst(4))
+            if next != stage { stage = next }
+            if !stage.hasPrefix("Downloading") && progress != nil { progress = nil }
         } else if line.hasPrefix("✓ ") {
-            stage = String(line.dropFirst(2))
+            let next = String(line.dropFirst(2))
+            if next != stage { stage = next }
         }
     }
 
@@ -387,34 +484,65 @@ final class LauncherModel: ObservableObject {
     ]
     static let fontPaths = ["content/fonts/CustomFont.ttf", "content/fonts/CustomFont.otf"]
 
-    var deathSound: DeathSound {
-        let mod = modURL(Self.deathSoundPath)
-        guard FileManager.default.fileExists(atPath: mod.path) else { return .standard }
-        let oof = robloxResource("content/sounds/oof.ogg")
-        return FileManager.default.contentsEqual(atPath: mod.path, andPath: oof.path) ? .classic : .custom
+    var deathSound: DeathSound { modsSnapshot.deathSound }
+    var cursorStyle: CursorStyle { modsSnapshot.cursorStyle }
+    var customFontName: String? { modsSnapshot.customFontName }
+    var modFileCount: Int { modsSnapshot.fileCount }
+    /// Files in the mods folder that aren't managed by the Style page.
+    var extraModCount: Int { modsSnapshot.extraCount }
+    /// The installed custom font file, if any.
+    var customFontURL: URL? { modsSnapshot.customFontURL }
+
+    /// What's in the mods folder. Reading it means walking the folder and
+    /// comparing files, so it's done once per change rather than on every redraw.
+    private var modsSnapshot: ModsSnapshot {
+        let key = "\(modsRevision)|\(status?.installPath ?? "")|\(status?.installed ?? "")|\(modsReadGeneration)"
+        if let cached = modsCache, cached.key == key { return cached.snapshot }
+        let snapshot = readMods()
+        modsCache = (key, snapshot)
+        return snapshot
     }
 
-    var cursorStyle: CursorStyle {
-        let mod = modURL(Self.cursorPaths[0])
-        guard FileManager.default.fileExists(atPath: mod.path) else { return .standard }
-        // The top-level textures are never modded, so Roblox's copy is the reference.
-        let classic = robloxResource(Self.classicCursorSources[0])
-        return FileManager.default.contentsEqual(atPath: mod.path, andPath: classic.path) ? .classic : .custom
+    /// Forgets the cached mods folder contents, e.g. after the user may have
+    /// changed it in Finder.
+    func rereadMods() {
+        modsReadGeneration += 1
+        objectWillChange.send()
     }
 
-    var customFontName: String? {
-        guard Self.fontPaths.contains(where: { FileManager.default.fileExists(atPath: modURL($0).path) })
-        else { return nil }
-        return UserDefaults.standard.string(forKey: "customFontName") ?? "Custom font"
-    }
+    private func readMods() -> ModsSnapshot {
+        let fm = FileManager.default
+        var snapshot = ModsSnapshot()
 
-    var modFileCount: Int {
-        guard let e = FileManager.default.enumerator(at: modsURL, includingPropertiesForKeys: [.isRegularFileKey]) else { return 0 }
-        var count = 0
-        for case let url as URL in e where url.lastPathComponent != ".DS_Store" {
-            if (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true { count += 1 }
+        let sound = modURL(Self.deathSoundPath)
+        if fm.fileExists(atPath: sound.path) {
+            let oof = robloxResource("content/sounds/oof.ogg")
+            snapshot.deathSound = fm.contentsEqual(atPath: sound.path, andPath: oof.path) ? .classic : .custom
         }
-        return count
+
+        let cursor = modURL(Self.cursorPaths[0])
+        if fm.fileExists(atPath: cursor.path) {
+            // The top-level textures are never modded, so Roblox's copy is the reference.
+            let classic = robloxResource(Self.classicCursorSources[0])
+            snapshot.cursorStyle = fm.contentsEqual(atPath: cursor.path, andPath: classic.path) ? .classic : .custom
+        }
+
+        snapshot.customFontURL = Self.fontPaths.map(modURL).first { fm.fileExists(atPath: $0.path) }
+        if snapshot.customFontURL != nil {
+            snapshot.customFontName = UserDefaults.standard.string(forKey: "customFontName") ?? "Custom font"
+        }
+
+        let known = Set([Self.deathSoundPath] + Self.cursorPaths + Self.fontPaths)
+        if let e = fm.enumerator(at: modsURL, includingPropertiesForKeys: [.isRegularFileKey]) {
+            let base = modsURL.standardizedFileURL.path + "/"
+            for case let url as URL in e where url.lastPathComponent != ".DS_Store" {
+                guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
+                snapshot.fileCount += 1
+                let rel = url.standardizedFileURL.path.replacingOccurrences(of: base, with: "")
+                if !known.contains(rel) { snapshot.extraCount += 1 }
+            }
+        }
+        return snapshot
     }
 
     func setDeathSound(_ choice: DeathSound, file: URL? = nil) {
@@ -458,11 +586,6 @@ final class LauncherModel: ObservableObject {
                                       forKey: "customFontName")
         }
         modsChanged()
-    }
-
-    /// The installed custom font file, if any.
-    var customFontURL: URL? {
-        Self.fontPaths.map(modURL).first { FileManager.default.fileExists(atPath: $0.path) }
     }
 
     func clearMods() {

@@ -123,9 +123,9 @@ extension Color {
 
 extension Animation {
     /// The launcher's signature springy motion.
-    static let bounce = Animation.spring(response: 0.45, dampingFraction: 0.62)
-    static let snappy = Animation.spring(response: 0.3, dampingFraction: 0.78)
-    static let wobble = Animation.spring(response: 0.5, dampingFraction: 0.42)
+    static let bounce = Animation.spring(response: 0.34, dampingFraction: 0.74)
+    static let snappy = Animation.spring(response: 0.22, dampingFraction: 0.86)
+    static let wobble = Animation.spring(response: 0.36, dampingFraction: 0.56)
 }
 
 // MARK: - Background
@@ -134,11 +134,20 @@ struct AnimatedBackground: View {
     let theme: Theme
     let animated: Bool
     var studs = true
+    /// The Custom theme's picture, drawn under a faint wash of its colours.
+    var image: NSImage?
+    var dim: Double = 0.35
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
-            if theme.isGlass {
+            if let image, theme.id == .custom {
+                Color.black
+                BackgroundPicture(image: image)
+                Color.black.opacity(dim)
+                BackdropLayers(colors: theme.glows, base: .clear, glowAlpha: 0.18,
+                               animated: animated && !reduceMotion, studs: studs)
+            } else if theme.isGlass {
                 // Frosted glass: the desktop shows through, blurred, with a
                 // soft wash of colour on top.
                 VisualEffectBlur(material: .hudWindow)
@@ -156,6 +165,39 @@ struct AnimatedBackground: View {
             }
         }
         .ignoresSafeArea()
+    }
+}
+
+/// A picture that fills the view, cropped rather than stretched. Drawn by a
+/// layer, so resizing the window doesn't redraw it.
+struct BackgroundPicture: NSViewRepresentable {
+    let image: NSImage
+
+    func makeNSView(context: Context) -> PictureView { PictureView() }
+    func updateNSView(_ view: PictureView, context: Context) { view.show(image) }
+
+    final class PictureView: NSView {
+        private weak var shown: NSImage?
+
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            wantsLayer = true
+            layer?.contentsGravity = .resizeAspectFill
+            layer?.masksToBounds = true
+        }
+
+        required init?(coder: NSCoder) { fatalError() }
+
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        func show(_ image: NSImage) {
+            guard image !== shown else { return }
+            shown = image
+            CATransaction.begin()
+            CATransaction.setAnimationDuration(0.5)
+            layer?.contents = image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+            CATransaction.commit()
+        }
     }
 }
 
@@ -217,6 +259,9 @@ private struct BackdropLayers: NSViewRepresentable {
         private var colors: [NSColor] = []
         private var studArea = CGSize.zero
         private static let tile: CGFloat = 30
+        /// The backdrop moves a few points a second, so 30fps looks the same as
+        /// 120 and leaves the GPU free for the interface.
+        private static let slowFrames = CAFrameRateRange(minimum: 15, maximum: 30, preferred: 30)
 
         // Positions (as fractions of the view) each glow drifts between, and its size.
         private let paths: [(from: CGPoint, to: CGPoint, size: CGFloat)] = [
@@ -317,6 +362,7 @@ private struct BackdropLayers: NSViewRepresentable {
                 drift.autoreverses = true
                 drift.repeatCount = .infinity
                 drift.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                drift.preferredFrameRateRange = Self.slowFrames
                 glow.add(drift, forKey: "drift")
             }
             studLayer.removeAnimation(forKey: "scroll")
@@ -326,12 +372,30 @@ private struct BackdropLayers: NSViewRepresentable {
             scroll.toValue = NSValue(size: CGSize(width: Self.tile, height: Self.tile))
             scroll.duration = 9
             scroll.repeatCount = .infinity
+            scroll.preferredFrameRateRange = Self.slowFrames
             studLayer.add(scroll, forKey: "scroll")
         }
     }
 }
 
 // MARK: - Surfaces
+
+extension Shape {
+    /// A drop shadow drawn only outside the shape, so it can sit behind
+    /// see-through content. Being a plain shape, it's rendered once instead of
+    /// whenever the content on top changes.
+    func outerShadow(color: Color, radius: CGFloat, y: CGFloat = 0) -> some View {
+        fill(.black)
+            .shadow(color: color, radius: radius, y: y)
+            .mask {
+                Rectangle()
+                    .padding(-(radius * 3 + abs(y)))
+                    .overlay(self.blendMode(.destinationOut))
+                    .compositingGroup()
+            }
+            .allowsHitTesting(false)
+    }
+}
 
 struct GlassBackground: ViewModifier {
     var corner: CGFloat = 20
@@ -372,11 +436,10 @@ struct AppearIn: ViewModifier {
     func body(content: Content) -> some View {
         content
             .opacity(shown ? 1 : 0)
-            .offset(y: shown || reduceMotion ? 0 : 24)
-            .scaleEffect(shown || reduceMotion ? 1 : 0.95, anchor: .top)
+            .offset(y: shown || reduceMotion ? 0 : 12)
             .onAppear {
                 if reduceMotion { shown = true; return }
-                withAnimation(.bounce.delay(Double(index) * 0.05)) { shown = true }
+                withAnimation(.snappy.delay(Double(min(index, 8)) * 0.025)) { shown = true }
             }
     }
 }
@@ -463,13 +526,18 @@ struct ChunkyButtonStyle: ButtonStyle {
 
             configuration.label
                 .font(font)
+                .lineLimit(1)
+                .fixedSize()
                 .foregroundStyle(textColor.opacity(active ? 1 : 0.6))
                 .shadow(color: .black.opacity(glassy || textColor != .white ? 0 : 0.22), radius: 0, y: 1)
                 .padding(insets)
                 .offset(y: sink)
                 .background {
                     ZStack {
+                        // The glow comes from a plain shape, so it never has to
+                        // be recomputed from the label.
                         shape.fill(lipColor).offset(y: lip)
+                            .shadow(color: glassy ? .clear : color.opacity(hovering && active ? 0.55 : 0.3), radius: 12, y: 6)
                         shape.fill(face)
                             .overlay(shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.4), .white.opacity(0.06)],
                                                                        startPoint: .top, endPoint: .bottom), lineWidth: 1))
@@ -478,7 +546,6 @@ struct ChunkyButtonStyle: ButtonStyle {
                     }
                 }
                 .padding(.bottom, lip)
-                .shadow(color: glassy ? .clear : color.opacity(hovering && active ? 0.6 : 0.3), radius: hovering ? 20 : 10, y: 6)
                 .opacity(active ? 1 : 0.55)
                 .saturation(active ? 1 : 0.4)
                 .animation(.wobble, value: pressed)
@@ -819,6 +886,15 @@ struct FlowLayout: Layout {
 /// Loads an app's own .icns so newer macOS versions don't draw it on a gray
 /// plate the way NSWorkspace icons for older-style icons are.
 func bundleIcon(_ appURL: URL) -> NSImage? {
+    if let cached = iconCache[appURL.path] { return cached }
+    let icon = loadBundleIcon(appURL)
+    if let icon { iconCache[appURL.path] = icon }
+    return icon
+}
+
+private var iconCache: [String: NSImage] = [:]
+
+private func loadBundleIcon(_ appURL: URL) -> NSImage? {
     let bundle = Bundle(url: appURL)
     let name = (bundle?.object(forInfoDictionaryKey: "CFBundleIconFile") as? String) ?? "AppIcon"
     let file = appURL.appendingPathComponent("Contents/Resources")

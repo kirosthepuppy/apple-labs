@@ -226,21 +226,6 @@ extension LauncherModel {
         return count
     }
 
-    /// Files in the mods folder that aren't managed by the Style page.
-    var extraModCount: Int {
-        var count = 0
-        let known = Set([Self.deathSoundPath] + Self.cursorPaths + Self.fontPaths)
-        if let e = FileManager.default.enumerator(at: modsURL, includingPropertiesForKeys: [.isRegularFileKey]) {
-            let base = modsURL.standardizedFileURL.path + "/"
-            for case let url as URL in e where url.lastPathComponent != ".DS_Store" {
-                guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
-                let rel = url.standardizedFileURL.path.replacingOccurrences(of: base, with: "")
-                if !known.contains(rel) { count += 1 }
-            }
-        }
-        return count
-    }
-
     /// Roblox's original copy of a resource, even while a mod replaces it.
     func originalResource(_ relative: String) -> URL {
         let backup = supportURL.appendingPathComponent("ModBackups").appendingPathComponent(relative)

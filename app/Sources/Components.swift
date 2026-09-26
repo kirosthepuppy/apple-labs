@@ -48,8 +48,7 @@ struct ChoiceTile<Content: View>: View {
                             .transition(.scale(scale: 0.1).combined(with: .opacity))
                     }
                 }
-                .shadow(color: selected ? model.theme.accent.opacity(0.4) : .black.opacity(hovering ? 0.25 : 0),
-                        radius: 16, y: selected ? 0 : 8)
+                .shadow(color: selected ? model.theme.accent.opacity(0.35) : .clear, radius: 10)
                 .scaleEffect((hovering ? 1.025 : 1) * bump)
                 .offset(y: hovering ? -3 : 0)
                 .contentShape(Rectangle())

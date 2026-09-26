@@ -3,8 +3,7 @@
 //   swiftc -O make-icon.swift -o make-icon && ./make-icon AppIcon.iconset
 //
 // The artwork is drawn in code so the repository needs no image files: a
-// sunset-to-blue squircle with a faint stud grid, and a tilted white brick
-// with a play button cut through it.
+// deep violet squircle with a glowing glass flask of bubbling pink liquid.
 
 import CoreGraphics
 import Foundation
@@ -28,78 +27,102 @@ func drawIcon(_ ctx: CGContext, pixels: Int) {
     ctx.saveGState()
     ctx.setShadow(offset: CGSize(width: 0, height: -12), blur: 30, color: color(0, 0, 0, 0.35))
     ctx.addPath(bodyPath)
-    ctx.setFillColor(color(0.2, 0.2, 0.3))
+    ctx.setFillColor(color(0.1, 0.08, 0.22))
     ctx.fillPath()
     ctx.restoreGState()
-
-    let gradient = CGGradient(colorsSpace: srgb,
-                              colors: [color(1.0, 0.58, 0.22), color(0.90, 0.28, 0.52), color(0.26, 0.36, 1.0)] as CFArray,
-                              locations: [0, 0.48, 1])!
-    func paintBody() {
-        ctx.drawLinearGradient(gradient, start: CGPoint(x: 160, y: 930), end: CGPoint(x: 880, y: 90), options: [])
-    }
 
     ctx.saveGState()
     ctx.addPath(bodyPath)
     ctx.clip()
-    paintBody()
-    // Soft sheen from the top-left.
-    let sheen = CGGradient(colorsSpace: srgb, colors: [color(1, 1, 1, 0.32), color(1, 1, 1, 0)] as CFArray, locations: [0, 1])!
-    ctx.drawRadialGradient(sheen, startCenter: CGPoint(x: 280, y: 860), startRadius: 0,
-                           endCenter: CGPoint(x: 280, y: 860), endRadius: 560, options: [])
-    // A faint grid of studs.
-    for y in stride(from: 170.0, through: 880, by: 88) {
-        for x in stride(from: 170.0, through: 880, by: 88) {
-            ctx.setFillColor(color(0, 0, 0, 0.08))
-            ctx.fillEllipse(in: CGRect(x: x - 15, y: y - 18, width: 30, height: 30))
-            ctx.setFillColor(color(1, 1, 1, 0.1))
-            ctx.fillEllipse(in: CGRect(x: x - 15, y: y - 15, width: 30, height: 30))
-        }
+    let backdrop = CGGradient(colorsSpace: srgb,
+                              colors: [color(0.27, 0.17, 0.62), color(0.10, 0.07, 0.28), color(0.04, 0.05, 0.14)] as CFArray,
+                              locations: [0, 0.55, 1])!
+    ctx.drawLinearGradient(backdrop, start: CGPoint(x: 512, y: 924), end: CGPoint(x: 512, y: 100), options: [])
+    // The flask's glow.
+    let glow = CGGradient(colorsSpace: srgb, colors: [color(1.0, 0.35, 0.62, 0.55), color(1.0, 0.35, 0.62, 0)] as CFArray,
+                          locations: [0, 1])!
+    ctx.drawRadialGradient(glow, startCenter: CGPoint(x: 512, y: 330), startRadius: 0,
+                           endCenter: CGPoint(x: 512, y: 330), endRadius: 420, options: [])
+    // Soft sheen along the top.
+    let sheen = CGGradient(colorsSpace: srgb, colors: [color(1, 1, 1, 0.16), color(1, 1, 1, 0)] as CFArray, locations: [0, 1])!
+    ctx.drawLinearGradient(sheen, start: CGPoint(x: 512, y: 924), end: CGPoint(x: 512, y: 640), options: [])
+    ctx.restoreGState()
+
+    // The flask: a straight neck flaring into a wide, round-cornered base.
+    let neckL: CGFloat = 446, neckR: CGFloat = 578, neckTop: CGFloat = 770, shoulder: CGFloat = 590
+    let baseL: CGFloat = 238, baseR: CGFloat = 786, bottom: CGFloat = 232
+    let flask = CGMutablePath()
+    flask.move(to: CGPoint(x: neckL, y: neckTop))
+    flask.addArc(tangent1End: CGPoint(x: neckL, y: shoulder), tangent2End: CGPoint(x: baseL, y: bottom), radius: 40)
+    flask.addArc(tangent1End: CGPoint(x: baseL, y: bottom), tangent2End: CGPoint(x: 512, y: bottom), radius: 70)
+    flask.addArc(tangent1End: CGPoint(x: baseR, y: bottom), tangent2End: CGPoint(x: neckR, y: shoulder), radius: 70)
+    flask.addArc(tangent1End: CGPoint(x: neckR, y: shoulder), tangent2End: CGPoint(x: neckR, y: neckTop), radius: 40)
+    flask.addLine(to: CGPoint(x: neckR, y: neckTop))
+    flask.closeSubpath()
+
+    // Glass.
+    ctx.saveGState()
+    ctx.addPath(flask)
+    ctx.setFillColor(color(1, 1, 1, 0.12))
+    ctx.fillPath()
+    ctx.restoreGState()
+
+    // Liquid with a gentle wave on top, clipped to the glass.
+    ctx.saveGState()
+    ctx.addPath(flask)
+    ctx.clip()
+    let level: CGFloat = 420
+    let liquid = CGMutablePath()
+    liquid.move(to: CGPoint(x: 150, y: level))
+    liquid.addCurve(to: CGPoint(x: 512, y: level + 6), control1: CGPoint(x: 280, y: level + 44), control2: CGPoint(x: 400, y: level - 34))
+    liquid.addCurve(to: CGPoint(x: 874, y: level), control1: CGPoint(x: 624, y: level + 46), control2: CGPoint(x: 760, y: level - 30))
+    liquid.addLine(to: CGPoint(x: 874, y: 150))
+    liquid.addLine(to: CGPoint(x: 150, y: 150))
+    liquid.closeSubpath()
+    ctx.addPath(liquid)
+    ctx.clip()
+    let juice = CGGradient(colorsSpace: srgb, colors: [color(1.0, 0.42, 0.66), color(1.0, 0.56, 0.30)] as CFArray,
+                           locations: [0, 1])!
+    ctx.drawLinearGradient(juice, start: CGPoint(x: 512, y: level + 20), end: CGPoint(x: 512, y: bottom), options: [])
+    // Bubbles in the liquid.
+    for (x, y, r) in [(420.0, 300.0, 26.0), (560.0, 350.0, 18.0), (620.0, 272.0, 32.0), (360.0, 372.0, 12.0)] {
+        ctx.setFillColor(color(1, 1, 1, 0.45))
+        ctx.fillEllipse(in: CGRect(x: x - r, y: y - r, width: r * 2, height: r * 2))
     }
     ctx.restoreGState()
 
-    // The brick: a tilted rounded square.
-    let side: CGFloat = 450
-    var tilt = CGAffineTransform(translationX: 512, y: 504).rotated(by: -12 * .pi / 180)
-    let brick = CGPath(roundedRect: CGRect(x: -side / 2, y: -side / 2, width: side, height: side),
-                       cornerWidth: 86, cornerHeight: 86, transform: &tilt)
+    // Bubbles rising out of the liquid.
+    for (x, y, r) in [(496.0, 500.0, 20.0), (540.0, 600.0, 14.0), (500.0, 690.0, 10.0)] {
+        ctx.setFillColor(color(1, 0.8, 0.9, 0.85))
+        ctx.fillEllipse(in: CGRect(x: x - r, y: y - r, width: r * 2, height: r * 2))
+    }
 
+    // Glass outline and rim.
     ctx.saveGState()
-    ctx.setShadow(offset: CGSize(width: 0, height: -26), blur: 44, color: color(0.12, 0.04, 0.3, 0.5))
-    ctx.addPath(brick)
+    ctx.setShadow(offset: CGSize(width: 0, height: -8), blur: 24, color: color(0.05, 0.02, 0.15, 0.6))
+    ctx.addPath(flask)
+    ctx.setStrokeColor(color(1, 1, 1))
+    ctx.setLineWidth(34)
+    ctx.setLineJoin(.round)
+    ctx.strokePath()
+    let rim = CGPath(roundedRect: CGRect(x: 410, y: neckTop - 14, width: 204, height: 56), cornerWidth: 28, cornerHeight: 28, transform: nil)
+    ctx.addPath(rim)
     ctx.setFillColor(color(1, 1, 1))
     ctx.fillPath()
     ctx.restoreGState()
 
+    // A highlight down the left side of the glass.
     ctx.saveGState()
-    ctx.addPath(brick)
-    ctx.clip()
-    let shade = CGGradient(colorsSpace: srgb, colors: [color(1, 1, 1), color(0.86, 0.88, 0.97)] as CFArray, locations: [0, 1])!
-    ctx.drawLinearGradient(shade, start: CGPoint(x: 512, y: 760), end: CGPoint(x: 512, y: 250), options: [])
-    ctx.restoreGState()
-
-    // A rounded play triangle cut through the brick, showing the body behind it.
-    let cx: CGFloat = 530, cy: CGFloat = 504, r: CGFloat = 132
-    let p1 = CGPoint(x: cx + r, y: cy)
-    let p2 = CGPoint(x: cx - r / 2, y: cy + r * 0.866)
-    let p3 = CGPoint(x: cx - r / 2, y: cy - r * 0.866)
-    let play = CGMutablePath()
-    play.move(to: CGPoint(x: (p3.x + p1.x) / 2, y: (p3.y + p1.y) / 2))
-    play.addArc(tangent1End: p1, tangent2End: p2, radius: 30)
-    play.addArc(tangent1End: p2, tangent2End: p3, radius: 30)
-    play.addArc(tangent1End: p3, tangent2End: p1, radius: 30)
-    play.closeSubpath()
-
-    ctx.saveGState()
-    ctx.addPath(play)
-    ctx.clip()
-    paintBody()
-    // Inner shadow along the top edge so the hole reads as a cut-out.
-    ctx.setShadow(offset: CGSize(width: 0, height: -10), blur: 16, color: color(0, 0, 0, 0.45))
-    ctx.addRect(CGRect(x: 0, y: 0, width: 1024, height: 1024))
-    ctx.addPath(play)
-    ctx.setFillColor(color(0, 0, 0))
-    ctx.fillPath(using: .evenOdd)
+    let shine = CGMutablePath()
+    shine.move(to: CGPoint(x: 476, y: 730))
+    shine.addLine(to: CGPoint(x: 476, y: 610))
+    shine.addLine(to: CGPoint(x: 330, y: 360))
+    ctx.addPath(shine)
+    ctx.setStrokeColor(color(1, 1, 1, 0.5))
+    ctx.setLineWidth(16)
+    ctx.setLineCap(.round)
+    ctx.setLineJoin(.round)
+    ctx.strokePath()
     ctx.restoreGState()
 }
 

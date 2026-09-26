@@ -85,8 +85,9 @@ private struct Stage: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let game: RecentGame?
     @Namespace private var ns
-    @State private var size = CGSize(width: 900, height: 340)
-    @State private var hover = CGSize.zero
+    /// Held here but only read by the backdrop, so moving the pointer redraws
+    /// the artwork and nothing else.
+    @StateObject private var tilt = PointerTilt()
 
     private var fallbackTitle: String {
         switch model.state {
@@ -108,7 +109,7 @@ private struct Stage: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 30, style: .continuous)
         ZStack(alignment: .bottomLeading) {
-            backdrop
+            StageBackdrop(game: game, tilt: tilt)
             LinearGradient(colors: [.black.opacity(0.88), .black.opacity(0.5), .clear],
                            startPoint: .leading, endPoint: .trailing)
             LinearGradient(colors: [.clear, .black.opacity(0.5)], startPoint: .center, endPoint: .bottom)
@@ -123,46 +124,15 @@ private struct Stage: View {
         .clipShape(shape)
         .overlay(shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.28), .white.opacity(0.05)],
                                                    startPoint: .top, endPoint: .bottom)))
-        .shadow(color: .black.opacity(0.45), radius: 28, y: 14)
+        // Shadowing a plain shape instead of the card means the shadow is
+        // drawn once, not again every time the artwork or buttons change.
+        .background(shape.outerShadow(color: .black.opacity(0.45), radius: 28, y: 14))
         .onContinuousHover { phase in
             guard !reduceMotion else { return }
             switch phase {
-            case .active(let p):
-                withAnimation(.snappy) {
-                    hover = CGSize(width: p.x / max(size.width, 1) - 0.5, height: p.y / max(size.height, 1) - 0.5)
-                }
-            case .ended:
-                withAnimation(.wobble) { hover = .zero }
+            case .active(let p): tilt.point(at: p, in: CGSize(width: tilt.width, height: 340))
+            case .ended: withAnimation(.wobble) { tilt.offset = .zero }
             }
-        }
-    }
-
-    /// Sized by a GeometryReader so the artwork always fills the card
-    /// exactly, whatever width the page gives it.
-    private var backdrop: some View {
-        GeometryReader { geo in
-            ZStack {
-                LinearGradient(colors: [.black, model.theme.heroGlow], startPoint: .leading, endPoint: .trailing)
-                if let art = game?.artURL {
-                    RemoteImage(url: art) { Color.clear }
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: geo.size.width * 1.08, height: geo.size.height * 1.08)
-                        .offset(x: -hover.width * 20, y: -hover.height * 14)
-                        .frame(width: geo.size.width, height: geo.size.height)
-                        .clipped()
-                } else {
-                    RadialGradient(colors: [model.theme.accent.opacity(0.5), .clear],
-                                   center: UnitPoint(x: 0.8, y: 0.5), startRadius: 10, endRadius: 300)
-                    BobbingImage(image: bundleIcon(model.robloxAppURL) ?? NSApp.applicationIconImage ?? NSImage(),
-                                 glow: model.theme.accent, animated: !reduceMotion)
-                        .frame(width: 184, height: 184)
-                        .rotation3DEffect(.degrees(Double(hover.width) * 30), axis: (x: 0, y: 1, z: 0), perspective: 0.6)
-                        .rotation3DEffect(.degrees(Double(-hover.height) * 30), axis: (x: 1, y: 0, z: 0), perspective: 0.6)
-                        .position(x: geo.size.width - 170, y: geo.size.height / 2)
-                }
-            }
-            .onAppear { size = geo.size }
-            .onChange(of: geo.size) { size = $0 }
         }
     }
 
@@ -289,6 +259,58 @@ private struct Stage: View {
     }
 }
 
+/// Where the pointer is over the Play card, from -0.5 to 0.5 on each axis.
+private final class PointerTilt: ObservableObject {
+    @Published var offset = CGSize.zero
+    /// The card's width, kept up to date by the backdrop. Not published: the
+    /// card doesn't need to redraw when it changes.
+    var width: CGFloat = 900
+
+    func point(at p: CGPoint, in size: CGSize) {
+        let next = CGSize(width: p.x / max(size.width, 1) - 0.5, height: p.y / max(size.height, 1) - 0.5)
+        // Ignore sub-pixel jitter.
+        guard abs(next.width - offset.width) > 0.004 || abs(next.height - offset.height) > 0.004 else { return }
+        withAnimation(.snappy) { offset = next }
+    }
+}
+
+/// The Play card's artwork, which leans toward the pointer. Sized by a
+/// GeometryReader so it always fills the card exactly.
+private struct StageBackdrop: View {
+    @EnvironmentObject var model: LauncherModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let game: RecentGame?
+    @ObservedObject var tilt: PointerTilt
+
+    var body: some View {
+        let hover = tilt.offset
+        GeometryReader { geo in
+            ZStack {
+                LinearGradient(colors: [.black, model.theme.heroGlow], startPoint: .leading, endPoint: .trailing)
+                if let art = game?.artURL {
+                    RemoteImage(url: art) { Color.clear }
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: geo.size.width * 1.08, height: geo.size.height * 1.08)
+                        .offset(x: -hover.width * 20, y: -hover.height * 14)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .clipped()
+                } else {
+                    RadialGradient(colors: [model.theme.accent.opacity(0.5), .clear],
+                                   center: UnitPoint(x: 0.8, y: 0.5), startRadius: 10, endRadius: 300)
+                    BobbingImage(image: bundleIcon(model.robloxAppURL) ?? NSApp.applicationIconImage ?? NSImage(),
+                                 glow: model.theme.accent, animated: !reduceMotion)
+                        .frame(width: 184, height: 184)
+                        .rotation3DEffect(.degrees(Double(hover.width) * 30), axis: (x: 0, y: 1, z: 0), perspective: 0.6)
+                        .rotation3DEffect(.degrees(Double(-hover.height) * 30), axis: (x: 1, y: 0, z: 0), perspective: 0.6)
+                        .position(x: geo.size.width - 170, y: geo.size.height / 2)
+                }
+            }
+            .onAppear { tilt.width = geo.size.width }
+            .onChange(of: geo.size) { tilt.width = $0.width }
+        }
+    }
+}
+
 /// A circular progress indicator with the percentage in the middle.
 private struct ProgressRing: View {
     let value: Double?
@@ -395,7 +417,8 @@ private struct GameTile: View {
                     .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous)
                         .strokeBorder(.white.opacity(hovering ? 0.55 : 0.12), lineWidth: hovering ? 2 : 1))
-                    .shadow(color: .black.opacity(hovering ? 0.5 : 0.3), radius: hovering ? 16 : 8, y: hovering ? 10 : 5)
+                    .background(RoundedRectangle(cornerRadius: 26, style: .continuous)
+                        .outerShadow(color: .black.opacity(hovering ? 0.5 : 0.3), radius: 12, y: hovering ? 10 : 5))
 
                     Image(systemName: "play.fill")
                         .font(.system(size: 15, weight: .heavy))

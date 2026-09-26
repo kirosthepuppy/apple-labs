@@ -12,7 +12,7 @@ optional native SwiftUI launcher app sits on top of it.
 - **Handles website links.** `register` makes `roblox://` / `roblox-player://`
   links go through the bootstrapper, so joining from the browser also updates
   Roblox and applies your flags first.
-- **A launcher app.** `register` installs `~/Applications/Roblox Bootstrapper.app`
+- **A launcher app, Apple Labs.** `register` installs `~/Applications/Apple Labs.app`
   (with the Roblox icon): a window with a Launch button, mods, FastFlags and
   settings. Keep it in the Dock instead of Roblox so every launch updates first.
 - **Mods.** Classic "oof" death sound, classic or custom mouse cursor, a custom
@@ -37,9 +37,9 @@ If your shell can't find `roblox-bootstrapper`, add `~/.local/bin` to your PATH:
 
 (Or just clone the repo and run `./roblox-bootstrapper`.)
 
-## The launcher app
+## The launcher app (Apple Labs)
 
-A dark, toy-like launcher: a floating rail with a stretchy selection blob,
+A dark, toy-like launcher: a sidebar with a sliding selection,
 chunky 3D buttons that press in and spring back, and a slowly drifting grid of
 Roblox-style studs over coloured glows. Every continuous animation runs on
 Core Animation, so it idles at ~0% CPU, and Reduce Motion is respected.
@@ -49,14 +49,14 @@ Core Animation, so it idles at ~0% CPU, and Reduce Motion is respected.
 | Play     | Greets you with your Roblox avatar, shows your last game's artwork and live player count with a big Play button that rejoins it (with update progress and a confetti burst), a "Jump back in" row of recent games, and your loadout at a glance. |
 | Graphics | **Presets** (Roblox default, Balanced, Performance, Quality, Potato, with speed/looks meters), **Engine** settings (frame rate, anti-aliasing, textures, post-processing, grass, sky), and a full **FastFlags** editor with search and JSON import/export (works with Bloxstrap/Fishstrap exports). |
 | Style    | **Cursor** (default, classic arrow, or your own image, with a live preview), **Font** for the game (any .ttf/.otf on your Mac, each shown in its own typeface), **Sound** (default, classic "oof", or your own, with previews), and the **Files** mods folder. |
-| Launcher | **Look**: themes (Glass, Obsidian, Neon, Lava, Mint, Arctic, Sakura, or Custom with your own colours and a "Surprise me" button), the launcher's font (Avenir Next, SF Pro, Futura, Gill Sans, SF Rounded, SF Mono), interface size (80–130%, also ⌘+ / ⌘− / ⌘0), and motion. **Accounts**: switch Roblox accounts. **General**: close on launch, website links, recent games, channel, install location, build, reinstall. **Help**. |
+| Launcher | **Look**: themes (Glass, Obsidian, Neon, Lava, Mint, Arctic, Sakura, or Custom with your own colours, an optional background picture (with dim and blur) and a "Surprise me" button), the launcher's font (Avenir Next, SF Pro, Futura, Gill Sans, SF Rounded, SF Mono), interface size (80–130%, also ⌘+ / ⌘− / ⌘0), and motion. **Accounts**: switch Roblox accounts. **General**: close on launch (off by default, so the launcher stays open while you play), website links, recent games, channel, install location, build, reinstall. **Help**. |
 
 The **Glass** theme makes the window see-through, with your desktop frosted
 behind it.
 
 ### Account switching
 
-Click your avatar at the bottom of the rail to switch accounts. A saved account
+Click your account at the bottom of the sidebar to switch accounts. A saved account
 is a copy of the Roblox app's own sign-in (its cookie jar), kept only on this
 Mac in the launcher's data folder with owner-only permissions; switching swaps
 it in while Roblox is closed. The launcher never sees your password, and
@@ -139,8 +139,8 @@ Everything the bootstrapper keeps (settings, `fflags.json`, a log) lives in
    removing a mod puts Roblox's file back. A font at
    `Modifications/content/fonts/CustomFont.ttf` (or `.otf`) is also wired into
    every font family.
-5. `register` installs the launcher app at `~/Applications/Roblox Bootstrapper.app`
-   and makes it the default handler for the Roblox URL schemes. The app carries
+5. `register` installs the launcher app at `~/Applications/Apple Labs.app` (moving
+   one installed under its old name, `Roblox Bootstrapper.app`) and makes it the default handler for the Roblox URL schemes. The app carries
    its own copy of the script, which does all the work. The `--applet` fallback
    instead calls the script by its path, so re-run `register` if you move it.
 

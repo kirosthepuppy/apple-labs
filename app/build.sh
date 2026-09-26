@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Builds "Roblox Bootstrapper.app" (a universal SwiftUI launcher) into app/build.
+# Builds "Apple Labs.app" (a universal SwiftUI launcher) into app/build.
 #
 #   app/build.sh            build only
 #   app/build.sh --install  build, install to ~/Applications and register it
@@ -14,7 +14,7 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(dirname "$here")"
 out="$here/build"
-app="$out/Roblox Bootstrapper.app"
+app="$out/Apple Labs.app"
 version="$(sed -n 's/^VERSION="\(.*\)"/\1/p' "$root/roblox-bootstrapper")"
 
 rm -rf "$out"
@@ -47,7 +47,7 @@ echo "==> Built $app ($version)"
 
 case "${1:-}" in
   --install)
-    dest="$HOME/Applications/Roblox Bootstrapper.app"
+    dest="$HOME/Applications/Apple Labs.app"
     mkdir -p "$HOME/Applications"
     rm -rf "$dest"
     ditto "$app" "$dest"
@@ -55,7 +55,7 @@ case "${1:-}" in
     "$dest/Contents/Resources/roblox-bootstrapper" register
     ;;
   --zip)
-    (cd "$out" && ditto -c -k --keepParent "Roblox Bootstrapper.app" "Roblox-Bootstrapper.zip")
-    echo "==> $out/Roblox-Bootstrapper.zip"
+    (cd "$out" && ditto -c -k --keepParent "Apple Labs.app" "Apple-Labs.zip")
+    echo "==> $out/Apple-Labs.zip"
     ;;
 esac

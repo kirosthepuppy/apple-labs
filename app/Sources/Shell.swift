@@ -89,13 +89,14 @@ struct RootView: View {
     @EnvironmentObject var router: Router
     @EnvironmentObject var library: GameLibrary
 
-    static let minimumSize = CGSize(width: 960, height: 640)
+    static let minimumSize = CGSize(width: 1040, height: 660)
 
     var body: some View {
         let scale = CGFloat(model.uiScale)
         ZStack {
-            AnimatedBackground(theme: model.theme, animated: model.animatedBackground, studs: model.showStuds)
-            Color.black.opacity(model.theme.isGlass ? 0.08 : 0.2).ignoresSafeArea()
+            AnimatedBackground(theme: model.theme, animated: model.animatedBackground, studs: model.showStuds,
+                               image: model.backgroundImage, dim: model.backgroundDim)
+            Color.black.opacity(model.theme.isGlass ? 0.04 : 0.1).ignoresSafeArea()
 
             // Everything is laid out at 1/scale of the window and scaled back
             // up, so the Interface size setting zooms the whole launcher.
@@ -119,26 +120,33 @@ struct RootView: View {
     }
 
     private var foreground: some View {
-        ZStack(alignment: .topTrailing) {
-            HStack(alignment: .top, spacing: 0) {
-                Rail()
-                    .padding(.leading, 14)
-                    .padding(.top, 44)
-                    .padding(.bottom, 14)
+        let panel = RoundedRectangle(cornerRadius: 26, style: .continuous)
+        return ZStack(alignment: .topTrailing) {
+            HStack(spacing: 0) {
+                Sidebar()
+                    .frame(width: 228)
 
                 ZStack {
                     page
                         .id(router.page)
                         .transition(.asymmetric(
-                            insertion: .offset(y: router.forward ? 34 : -34).combined(with: .opacity),
-                            removal: .opacity.animation(.easeOut(duration: 0.12))))
+                            insertion: .offset(y: router.forward ? 14 : -14).combined(with: .opacity),
+                            removal: .opacity.animation(.easeOut(duration: 0.08))))
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(panel.fill(.black.opacity(model.theme.isGlass ? 0.16 : 0.26)))
+                .clipShape(panel)
+                .overlay(panel.strokeBorder(.white.opacity(0.07)))
+                // A shadow on the bare panel shape is drawn once; on the page it
+                // would be redrawn whenever anything on the page changed.
+                .background(panel.outerShadow(color: .black.opacity(0.3), radius: 30, y: 10))
+                .padding(.top, 56)
+                .padding([.trailing, .bottom], 20)
             }
 
             StatusCapsule()
-                .padding(.top, 12)
-                .padding(.trailing, 18)
+                .padding(.top, 13)
+                .padding(.trailing, 22)
         }
         // A new font means every view has to redraw its text.
         .id(model.launcherFont)
@@ -154,10 +162,7 @@ struct RootView: View {
                 case .launcher: LauncherPage()
                 }
             }
-            .padding(.leading, 26)
-            .padding(.trailing, 34)
-            .padding(.top, 58)
-            .padding(.bottom, 36)
+            .padding(30)
             .frame(maxWidth: 1200, alignment: .topLeading)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
@@ -172,168 +177,130 @@ struct RootView: View {
     }
 }
 
-// MARK: - Rail
+// MARK: - Sidebar
 
-/// The floating navigation rail. Its selection pill stretches like a blob:
-/// the leading edge springs ahead and the trailing edge catches up.
-struct Rail: View {
+struct Sidebar: View {
     @EnvironmentObject var model: LauncherModel
     @EnvironmentObject var router: Router
     @EnvironmentObject var library: GameLibrary
     @EnvironmentObject var accounts: AccountStore
-    @State private var top: CGFloat = 0
-    @State private var bottom: CGFloat = 64
-    @State private var logoSpin: Double = 0
+    @Namespace private var ns
     @State private var showAccounts = false
-    @State private var avatarHover = false
-
-    private let itemHeight: CGFloat = 64
-    private let gap: CGFloat = 8
-
-    private func edges(_ page: Page) -> (top: CGFloat, bottom: CGFloat) {
-        let i = CGFloat(Page.allCases.firstIndex(of: page) ?? 0)
-        let t = i * (itemHeight + gap)
-        return (t, t + itemHeight)
-    }
+    @State private var accountHover = false
 
     var body: some View {
-        let accent = model.theme.accent
-        VStack(spacing: 0) {
-            Button {
-                withAnimation(.wobble) { logoSpin += 360 }
-                router.go(.play)
-            } label: {
-                AppLogo(size: 48)
-                    .rotationEffect(.degrees(logoSpin))
-                    .shadow(color: accent.opacity(0.55), radius: 10, y: 3)
-            }
-            .buttonStyle(PressableStyle(pressedScale: 0.85))
-            .help("Bootstrapper")
-            .padding(.top, 14)
-            .padding(.bottom, 22)
-
-            ZStack(alignment: .top) {
-                RoundedRectangle(cornerRadius: 21, style: .continuous)
-                    .fill(LinearGradient(colors: [accent.mixed(with: .white, by: 0.25), accent],
-                                         startPoint: .top, endPoint: .bottom))
-                    .overlay(RoundedRectangle(cornerRadius: 21, style: .continuous).strokeBorder(.white.opacity(0.3)))
-                    .shadow(color: accent.opacity(0.6), radius: 12, y: 4)
-                    .frame(width: 64, height: max(bottom - top, 12))
-                    .offset(y: top)
-
-                VStack(spacing: gap) {
-                    ForEach(Page.allCases) { item in
-                        RailItem(page: item, current: router.page) { router.go(item) }
-                            .frame(width: 64, height: itemHeight)
+        VStack(alignment: .leading, spacing: 2) {
+            Button { router.go(.play) } label: {
+                HStack(spacing: 12) {
+                    AppLogo(size: 38)
+                        .shadow(color: model.theme.accent.opacity(0.5), radius: 8)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("Apple Labs")
+                            .font(.ui(21, .heavy))
+                        Text("for Roblox on Mac")
+                            .font(.ui(11, .medium))
+                            .foregroundStyle(.white.opacity(0.55))
                     }
                 }
+                .contentShape(Rectangle())
             }
-            .frame(width: 64, alignment: .top)
+            .buttonStyle(PressableStyle(pressedScale: 0.96))
+            .padding(.leading, 10)
+            .padding(.top, 58)
+            .padding(.bottom, 22)
+
+            ForEach(Page.allCases) { item in
+                SidebarRow(item: item, selected: router.page == item, ns: ns) { router.go(item) }
+            }
 
             Spacer(minLength: 20)
 
-            Button { showAccounts.toggle() } label: {
-                AccountAvatar(url: accounts.avatar(for: accounts.current?.userId) ?? (library.enabled ? library.player?.avatarURL : nil),
-                              size: 44, ring: avatarHover || showAccounts ? accent : .white.opacity(0.4))
-                    .overlay(alignment: .bottomTrailing) {
-                        Image(systemName: "arrow.left.arrow.right")
-                            .font(.system(size: 8, weight: .black))
-                            .foregroundStyle(model.theme.onAccent)
-                            .frame(width: 18, height: 18)
-                            .background(Circle().fill(accent))
-                            .overlay(Circle().strokeBorder(.black.opacity(0.4), lineWidth: 1.5))
-                            .offset(x: 3, y: 3)
-                            .scaleEffect(avatarHover || showAccounts ? 1 : 0.001)
-                    }
-                    .scaleEffect(avatarHover ? 1.08 : 1)
-            }
-            .buttonStyle(PressableStyle(pressedScale: 0.88))
-            .onHover { h in withAnimation(.wobble) { avatarHover = h } }
-            .help(accounts.current.map { "Signed in as \($0.name) · switch accounts" } ?? "Accounts")
-            .popover(isPresented: $showAccounts, arrowEdge: .trailing) {
-                AccountSwitcher(isPresented: $showAccounts)
-                    .environmentObject(model)
-                    .environmentObject(router)
-                    .environmentObject(accounts)
-            }
-            .padding(.bottom, 16)
+            account
+                .padding(.bottom, 18)
         }
-        .frame(width: 86)
-        .frame(maxHeight: .infinity)
-        .background(RoundedRectangle(cornerRadius: 32, style: .continuous).fill(.black.opacity(0.34)))
-        .overlay(
-            RoundedRectangle(cornerRadius: 32, style: .continuous)
-                .strokeBorder(LinearGradient(colors: [.white.opacity(0.2), .white.opacity(0.04)], startPoint: .top, endPoint: .bottom))
-        )
-        .shadow(color: .black.opacity(0.3), radius: 20, y: 8)
-        .onAppear {
-            let e = edges(router.page)
-            top = e.top
-            bottom = e.bottom
-        }
-        .onChange(of: router.page) { move(to: $0) }
+        .padding(.horizontal, 14)
     }
 
-    private func move(to page: Page) {
-        let target = edges(page)
-        let lead = Animation.spring(response: 0.26, dampingFraction: 0.72)
-        let trail = Animation.spring(response: 0.52, dampingFraction: 0.6)
-        if target.top > top {
-            withAnimation(lead) { bottom = target.bottom }
-        } else {
-            withAnimation(lead) { top = target.top }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-            guard router.page == page else { return }
-            withAnimation(trail) {
-                top = target.top
-                bottom = target.bottom
+    private var account: some View {
+        let name = accounts.current?.name ?? (library.enabled ? library.player?.displayName : nil)
+        return Button { showAccounts.toggle() } label: {
+            HStack(spacing: 10) {
+                AccountAvatar(url: accounts.avatar(for: accounts.current?.userId) ?? (library.enabled ? library.player?.avatarURL : nil),
+                              size: 34, ring: accountHover || showAccounts ? model.theme.accent : .white.opacity(0.3))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(name ?? "Accounts")
+                        .font(.ui(13.5, .bold))
+                        .lineLimit(1)
+                    Text("Switch account")
+                        .font(.ui(11))
+                        .foregroundStyle(.white.opacity(0.55))
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.5))
             }
+            .padding(8)
+            .background(RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .fill(.white.opacity(accountHover || showAccounts ? 0.1 : 0.05)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PressableStyle(pressedScale: 0.96))
+        .onHover { h in withAnimation(.snappy) { accountHover = h } }
+        .help(accounts.current.map { "Signed in as \($0.name) · switch accounts" } ?? "Accounts")
+        .popover(isPresented: $showAccounts, arrowEdge: .trailing) {
+            AccountSwitcher(isPresented: $showAccounts)
+                .environmentObject(model)
+                .environmentObject(router)
+                .environmentObject(accounts)
         }
     }
 }
 
-private struct RailItem: View {
-    let page: Page
-    let current: Page
+private struct SidebarRow: View {
+    @EnvironmentObject var model: LauncherModel
+    let item: Page
+    let selected: Bool
+    let ns: Namespace.ID
     let action: () -> Void
     @State private var hovering = false
-    @State private var bump: CGFloat = 1
-
-    private var selected: Bool { page == current }
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 5) {
-                Image(systemName: page.symbol)
-                    .font(.system(size: 19, weight: .semibold))
-                    .scaleEffect(bump)
-                    .offset(y: hovering && !selected ? -2 : 0)
-                Text(page.title)
-                    .font(.ui(10.5, .bold))
+            HStack(spacing: 12) {
+                Image(systemName: item.symbol)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(selected ? model.theme.accent.mixed(with: .white, by: 0.35) : .white.opacity(0.8))
+                    .frame(width: 24)
+                Text(item.title)
+                    .font(.ui(15, .semibold))
+                Spacer()
+                Text("⌘" + String(item.shortcut))
+                    .font(.ui(11, .semibold))
+                    .foregroundStyle(.white.opacity(0.35))
+                    .opacity(hovering ? 1 : 0)
             }
-            .foregroundStyle(.white.opacity(selected ? 1 : (hovering ? 0.9 : 0.58)))
-            .frame(width: 64, height: 64)
+            .foregroundStyle(.white.opacity(selected ? 1 : 0.8))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
             .background {
-                if hovering && !selected {
-                    RoundedRectangle(cornerRadius: 21, style: .continuous).fill(.white.opacity(0.07))
+                if selected {
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .fill(.white.opacity(0.16))
+                        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(.white.opacity(0.1)))
+                        .matchedGeometryEffect(id: "selection", in: ns)
+                } else if hovering {
+                    RoundedRectangle(cornerRadius: 11, style: .continuous).fill(.white.opacity(0.06))
                 }
             }
+            .offset(x: hovering && !selected ? 3 : 0)
             .contentShape(Rectangle())
         }
-        .buttonStyle(PressableStyle(pressedScale: 0.88))
+        .buttonStyle(PressableStyle(pressedScale: 0.96))
         .onHover { h in withAnimation(.snappy) { hovering = h } }
         // Hover-exit events can get lost while the page animates; the pointer
-        // is on the clicked item anyway, so clear stale highlights elsewhere.
-        .onChange(of: current) { _ in if !selected { hovering = false } }
-        .onChange(of: selected) { isSelected in
-            guard isSelected else { return }
-            var t = Transaction()
-            t.disablesAnimations = true
-            withTransaction(t) { bump = 1.4 }
-            DispatchQueue.main.async { withAnimation(.wobble) { bump = 1 } }
-        }
-        .help(page.title + "  ⌘" + String(page.shortcut))
+        // is on the clicked row anyway, so clear stale highlights elsewhere.
+        .onChange(of: selected) { _ in if !selected { hovering = false } }
     }
 }
 
@@ -397,7 +364,8 @@ struct LinkLaunchView: View {
 
     var body: some View {
         ZStack {
-            AnimatedBackground(theme: model.theme, animated: model.animatedBackground, studs: model.showStuds)
+            AnimatedBackground(theme: model.theme, animated: model.animatedBackground, studs: model.showStuds,
+                               image: model.backgroundImage, dim: model.backgroundDim)
             Color.black.opacity(0.22)
             VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 16) {

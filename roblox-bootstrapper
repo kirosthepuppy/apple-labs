@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-VERSION="1.4.0"
+VERSION="1.5.0"
 
 # ---------------------------------------------------------------------------
 # Configuration (all overridable through the environment)
@@ -26,9 +26,11 @@ LOG_FILE="$SUPPORT_DIR/bootstrapper.log"
 MODS_DIR="$SUPPORT_DIR/Modifications"
 MODS_BACKUP_DIR="$SUPPORT_DIR/ModBackups"
 MODS_MANIFEST="$SUPPORT_DIR/mods-applied"
-HANDLER_APP="$HOME/Applications/Roblox Bootstrapper.app"
+HANDLER_APP="$HOME/Applications/Apple Labs.app"
+# What the launcher app was called before 1.5; moved to the new name on register.
+LEGACY_HANDLER_APP="$HOME/Applications/Roblox Bootstrapper.app"
 HANDLER_BUNDLE_ID="com.robloxbootstrapper.handler"
-LAUNCHER_ZIP_URL="https://github.com/kirosthepuppy/macOS-bootstrapper/releases/latest/download/Roblox-Bootstrapper.zip"
+LAUNCHER_ZIP_URL="https://github.com/kirosthepuppy/macOS-bootstrapper/releases/latest/download/Apple-Labs.zip"
 
 # Set by the launcher app: it shows its own progress and notifications.
 GUI_MODE="${ROBLOX_BOOTSTRAPPER_GUI:-}"
@@ -523,6 +525,18 @@ function run(argv) {
 EOF
 }
 
+# Moves a launcher app installed under its old name to the new one, or drops
+# it when the new one is already there, so only one copy is left.
+migrate_legacy_app() {
+  [ -d "$LEGACY_HANDLER_APP" ] || return 0
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$LEGACY_HANDLER_APP" 2>/dev/null || true
+  if [ -d "$HANDLER_APP" ]; then
+    rm -rf "$LEGACY_HANDLER_APP"
+  else
+    mv "$LEGACY_HANDLER_APP" "$HANDLER_APP"
+  fi
+}
+
 # The SwiftUI launcher (built from app/ or downloaded from GitHub releases)
 # as opposed to the AppleScript applet fallback.
 handler_is_launcher() { [ -x "$HANDLER_APP/Contents/MacOS/RobloxBootstrapper" ]; }
@@ -556,10 +570,11 @@ cmd_install_app() {
   curl -fsSL --retry 3 --connect-timeout 15 -o "$tmp/app.zip" "$LAUNCHER_ZIP_URL" \
     || { rm -rf "$tmp"; die "could not download $LAUNCHER_ZIP_URL"; }
   ditto -x -k "$tmp/app.zip" "$tmp/x" || { rm -rf "$tmp"; die "launcher archive is corrupt"; }
-  [ -d "$tmp/x/Roblox Bootstrapper.app" ] || { rm -rf "$tmp"; die "launcher archive has no app"; }
+  [ -d "$tmp/x/Apple Labs.app" ] || { rm -rf "$tmp"; die "launcher archive has no app"; }
   mkdir -p "$(dirname "$HANDLER_APP")"
   rm -rf "$HANDLER_APP"
-  mv "$tmp/x/Roblox Bootstrapper.app" "$HANDLER_APP"
+  mv "$tmp/x/Apple Labs.app" "$HANDLER_APP"
+  migrate_legacy_app
   rm -rf "$tmp"
   finish_handler_app
   ok "installed the launcher at $HANDLER_APP"
@@ -602,6 +617,7 @@ EOF
 # route Roblox links through it; falls back to a minimal AppleScript applet.
 cmd_register() {
   is_macos || die "registering a link handler requires macOS"
+  migrate_legacy_app
   if handler_is_launcher; then
     finish_handler_app
   elif [ "${1:-}" != "--applet" ] && ( cmd_install_app ) 2>/dev/null; then
@@ -616,6 +632,7 @@ cmd_register() {
 
 cmd_unregister() {
   is_macos || die "requires macOS"
+  migrate_legacy_app
   set_url_handler "com.roblox.RobloxPlayer" || warn "could not hand roblox:// links back to Roblox"
   # Only delete the applet; the launcher app stays usable without links.
   if [ -f "$HANDLER_APP/Contents/MacOS/applet" ] || [ "${1:-}" = "--remove-app" ]; then
@@ -896,7 +913,7 @@ status_json() {
   cur="$(installed_version)"
   latest="$(fetch_latest 2>/dev/null)" || latest=""
   roblox_running && running=true
-  [ -d "$HANDLER_APP" ] && handler=true
+  { [ -d "$HANDLER_APP" ] || [ -d "$LEGACY_HANDLER_APP" ]; } && handler=true
   ensure_fflags_file
   mkdir -p "$MODS_DIR"
   json_js '
@@ -937,7 +954,7 @@ cmd_status() {
   printf '  FastFlags      %s set\n' "$(json_js 'return Object.keys(JSON.parse(args[0])).length;' "$(cat "$FFLAGS_FILE")")"
   mkdir -p "$MODS_DIR"
   printf '  Mods           %s files\n' "$(find "$MODS_DIR" -type f ! -name .DS_Store | wc -l | tr -d ' ')"
-  if [ -d "$HANDLER_APP" ]; then printf '  Link handler   registered\n'
+  if [ -d "$HANDLER_APP" ] || [ -d "$LEGACY_HANDLER_APP" ]; then printf '  Link handler   registered\n'
   else printf '  Link handler   not registered\n'; fi
 }
 
@@ -945,7 +962,7 @@ cmd_uninstall() {
   local purge=""
   [ "${1:-}" = "--purge" ] && purge=1
   roblox_running && die "quit Roblox first"
-  if [ -d "$HANDLER_APP" ]; then cmd_unregister --remove-app; fi
+  if [ -d "$HANDLER_APP" ] || [ -d "$LEGACY_HANDLER_APP" ]; then cmd_unregister --remove-app; fi
   if [ -d "$(app_path)" ]; then rm -rf "$(app_path)"; ok "removed $(app_path)"; fi
   rm -f "$STATE_FILE"
   if [ -n "$purge" ]; then

@@ -58,7 +58,8 @@ private struct LookTab: View {
                         withAnimation(.bounce) { model.themeID = id }
                     } content: {
                         VStack(alignment: .leading, spacing: 10) {
-                            ThemePreview(theme: id == .custom ? model.customTheme : .preset(id))
+                            ThemePreview(theme: id == .custom ? model.customTheme : .preset(id),
+                                         image: id == .custom ? model.backgroundImage : nil)
                                 .frame(height: 74)
                             HStack(spacing: 6) {
                                 Text(id.name).font(.ui(15, .heavy))
@@ -126,6 +127,7 @@ private struct LookTab: View {
 /// A little swatch of a theme for its tile.
 private struct ThemePreview: View {
     let theme: Theme
+    var image: NSImage?
 
     var body: some View {
         ZStack {
@@ -137,6 +139,10 @@ private struct ThemePreview: View {
                 Circle().fill(.white.opacity(0.8)).frame(width: 30).offset(x: -34, y: -12)
                 VisualEffectBlur(material: .hudWindow, blending: .withinWindow)
                 LinearGradient(colors: [.white.opacity(0.25), .clear], startPoint: .top, endPoint: .bottom)
+            } else if let image {
+                // Overlaid on a colour so the cropped picture can't widen the tile.
+                Color.black.overlay(Image(nsImage: image).resizable().aspectRatio(contentMode: .fill))
+                StudPattern(spacing: 14).opacity(0.3)
             } else {
                 theme.base
                 LinearGradient(colors: theme.glows, startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -209,9 +215,69 @@ private struct CustomThemeEditor: View {
                 Swatch(title: "Glow 3", color: glow(2))
                 Swatch(title: "Background", color: base)
             }
+            BackgroundPicker()
         }
         .padding(18)
         .glass(corner: 20, highlighted: true, tint: model.theme.accent.opacity(0.6))
+    }
+}
+
+/// Picks a picture to show behind the launcher, with dim and blur controls.
+private struct BackgroundPicker: View {
+    @EnvironmentObject var model: LauncherModel
+
+    var body: some View {
+        let image = model.backgroundImage
+        HStack(spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous).fill(.black.opacity(0.3))
+                if let image {
+                    Image(nsImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .overlay(Color.black.opacity(model.backgroundDim))
+                } else {
+                    Image(systemName: "photo").font(.system(size: 17, weight: .semibold)).foregroundStyle(.white.opacity(0.5))
+                }
+            }
+            .frame(width: 76, height: 48)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.white.opacity(0.15)))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Background picture").font(.ui(14, .semibold))
+                Text(image == nil ? "Show any picture behind the launcher." : "Shown behind everything while Custom is on.")
+                    .font(.ui(12)).foregroundStyle(.white.opacity(0.55))
+            }
+            Spacer(minLength: 8)
+
+            if image != nil {
+                HStack(spacing: 8) {
+                    Text("Dim").font(.ui(12, .semibold)).foregroundStyle(.white.opacity(0.7))
+                    Slider(value: $model.backgroundDim, in: 0...0.8).labelsHidden().frame(width: 90)
+                }
+                HStack(spacing: 8) {
+                    Text("Blur").font(.ui(12, .semibold)).foregroundStyle(.white.opacity(0.7))
+                    AccentToggle(isOn: $model.backgroundBlur, accent: model.theme.accent)
+                }
+            }
+            Button(image == nil ? "Choose…" : "Change…") {
+                if let file = chooseFile(types: [.image], message: "Choose a picture for the launcher's background") {
+                    model.setBackgroundImage(file)
+                }
+            }
+            .buttonStyle(.chunky(model.theme.accent, size: .small))
+            if image != nil {
+                Button { model.setBackgroundImage(nil) } label: {
+                    Image(systemName: "trash").font(.system(size: 11, weight: .bold))
+                }
+                .buttonStyle(.chunkyGlass(size: .small))
+                .help("Remove the picture")
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(.black.opacity(0.2)))
+        .animation(.snappy, value: image != nil)
     }
 }
 
@@ -255,7 +321,7 @@ private struct ScaleControl: View {
                     if !editing { model.uiScale = draft }
                 }
                 .labelsHidden()
-                .frame(width: 180)
+                .frame(width: 150)
 
                 Button { model.zoom(by: 0.05) } label: {
                     Image(systemName: "plus").font(.system(size: 11, weight: .heavy))
@@ -271,6 +337,7 @@ private struct ScaleControl: View {
                     .buttonStyle(.chunkyGlass(size: .small))
                     .disabled(abs(model.uiScale - 1) < 0.001)
             }
+            .fixedSize()
         }
         .onAppear { draft = model.uiScale }
         .onChange(of: model.uiScale) { if !dragging { draft = $0 } }
@@ -287,7 +354,7 @@ private struct GeneralTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             GlassGroup {
-                SettingRow(title: "Close when Roblox starts", detail: "Get out of the way once the game is running") {
+                SettingRow(title: "Close when Roblox starts", detail: "Off: the launcher stays open while you play") {
                     AccentToggle(isOn: $model.closeOnLaunch, accent: model.theme.accent)
                 }
                 RowDivider()
@@ -395,7 +462,7 @@ private struct HelpTab: View {
             HStack(spacing: 16) {
                 AppLogo(size: 56)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Bootstrapper \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")")
+                    Text("Apple Labs \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")")
                         .font(.ui(17, .heavy))
                     Text("Inspired by Bloxstrap and Fishstrap. Not affiliated with Roblox Corporation.")
                         .font(.ui(12))
