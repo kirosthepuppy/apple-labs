@@ -1,0 +1,558 @@
+#!/bin/bash
+#
+# roblox-bootstrapper — install, update, configure and launch Roblox on macOS.
+#
+# A small Bloxstrap-style bootstrapper: it keeps Roblox.app on the latest
+# version straight from Roblox's CDN, re-applies your FastFlags after every
+# update, and can take over roblox:// / roblox-player:// links so every
+# launch from the website goes through it.
+#
+# Written for the bash 3.2 that ships with macOS (no associative arrays,
+# no ${var,,}, no mapfile).
+
+set -euo pipefail
+
+VERSION="1.0.0"
+
+# ---------------------------------------------------------------------------
+# Configuration (all overridable through the environment)
+# ---------------------------------------------------------------------------
+
+SUPPORT_DIR="${ROBLOX_BOOTSTRAPPER_HOME:-$HOME/Library/Application Support/RobloxBootstrapper}"
+CONFIG_FILE="$SUPPORT_DIR/config"
+FFLAGS_FILE="$SUPPORT_DIR/fflags.json"
+STATE_FILE="$SUPPORT_DIR/installed-version"
+LOG_FILE="$SUPPORT_DIR/bootstrapper.log"
+HANDLER_APP="$HOME/Applications/Roblox Bootstrapper.app"
+HANDLER_BUNDLE_ID="com.robloxbootstrapper.handler"
+
+# Persisted settings (see `config` command). Environment wins over the file.
+_env_channel="${ROBLOX_CHANNEL:-}"
+_env_dir="${ROBLOX_INSTALL_DIR:-}"
+_env_arch="${ROBLOX_ARCH:-}"
+[ -f "$CONFIG_FILE" ] && . "$CONFIG_FILE"
+CHANNEL="${_env_channel:-${CHANNEL:-LIVE}}"
+INSTALL_DIR="${_env_dir:-${INSTALL_DIR:-/Applications}}"
+ARCH="${_env_arch:-${ARCH:-auto}}"
+
+APP_NAME="Roblox.app"
+VERSION_API="https://clientsettingscdn.roblox.com/v2/client-version/MacPlayer"
+CDN_BASE="https://setup.rbxcdn.com"
+
+# ---------------------------------------------------------------------------
+# Output helpers
+# ---------------------------------------------------------------------------
+
+if [ -t 1 ]; then
+  C_BOLD=$'\033[1m'; C_DIM=$'\033[2m'; C_RED=$'\033[31m'; C_GRN=$'\033[32m'; C_YEL=$'\033[33m'; C_OFF=$'\033[0m'
+else
+  C_BOLD=""; C_DIM=""; C_RED=""; C_GRN=""; C_YEL=""; C_OFF=""
+fi
+
+log()  { mkdir -p "$SUPPORT_DIR"; printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG_FILE" 2>/dev/null || true; }
+info() { printf '%s==>%s %s\n' "$C_BOLD" "$C_OFF" "$*"; log "INFO $*"; }
+ok()   { printf '%s✓%s %s\n' "$C_GRN" "$C_OFF" "$*"; log "OK   $*"; }
+warn() { printf '%swarning:%s %s\n' "$C_YEL" "$C_OFF" "$*" >&2; log "WARN $*"; }
+die()  { printf '%serror:%s %s\n' "$C_RED" "$C_OFF" "$*" >&2; log "ERR  $*"; notify "Roblox Bootstrapper" "$*"; exit 1; }
+
+is_macos() { [ "$(uname -s)" = "Darwin" ]; }
+
+# Show a notification when running headless (e.g. launched from a browser link).
+notify() {
+  [ -t 1 ] && return 0
+  is_macos || return 0
+  osascript - "$1" "$2" >/dev/null 2>&1 <<'EOF' || true
+on run argv
+  display notification (item 2 of argv) with title (item 1 of argv)
+end run
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# JSON helper
+#
+# macOS has no jq by default, but it always has JavaScript for Automation.
+# The script body only uses plain JS so it also runs under node (used when
+# testing off-mac). Usage: json_js '<js body using `args` and returning a
+# string>' arg...
+# ---------------------------------------------------------------------------
+
+json_js() {
+  local body="$1"; shift
+  local prog="function run(args) { $body }"
+  if is_macos && command -v osascript >/dev/null 2>&1; then
+    osascript -l JavaScript -e "$prog" "$@"
+  elif command -v node >/dev/null 2>&1; then
+    node -e "$prog; process.stdout.write(String(run(process.argv.slice(1))) + '\n')" -- "$@"
+  else
+    die "need osascript (macOS) or node to edit JSON"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Paths / platform
+# ---------------------------------------------------------------------------
+
+app_path() { printf '%s/%s' "$INSTALL_DIR" "$APP_NAME"; }
+
+resolve_arch() {
+  case "$ARCH" in
+    arm64|x86_64) printf '%s' "$ARCH"; return ;;
+    auto) ;;
+    *) die "unknown ARCH '$ARCH' (use auto, arm64 or x86_64)" ;;
+  esac
+  # hw.optional.arm64 is 1 on Apple Silicon even when we run under Rosetta.
+  if [ "$(sysctl -n hw.optional.arm64 2>/dev/null || echo 0)" = "1" ] || [ "$(uname -m)" = "arm64" ]; then
+    printf 'arm64'
+  else
+    printf 'x86_64'
+  fi
+}
+
+channel_is_live() {
+  case "$CHANNEL" in LIVE|live|Live|"") return 0 ;; *) return 1 ;; esac
+}
+
+version_url() {
+  if channel_is_live; then printf '%s' "$VERSION_API"
+  else printf '%s/channel/%s' "$VERSION_API" "$CHANNEL"; fi
+}
+
+download_url() {
+  local version="$1" arch prefix
+  arch="$(resolve_arch)"
+  if channel_is_live; then prefix="$CDN_BASE/mac"
+  else prefix="$CDN_BASE/channel/$CHANNEL/mac"; fi
+  [ "$arch" = "arm64" ] && prefix="$prefix/arm64"
+  printf '%s/%s-RobloxPlayer.zip' "$prefix" "$version"
+}
+
+installed_version() {
+  [ -d "$(app_path)" ] || return 0
+  [ -f "$STATE_FILE" ] && cat "$STATE_FILE"
+  return 0
+}
+
+installed_display_version() {
+  local plist
+  plist="$(app_path)/Contents/Info.plist"
+  [ -f "$plist" ] || return 0
+  if command -v defaults >/dev/null 2>&1; then
+    defaults read "$plist" CFBundleShortVersionString 2>/dev/null || true
+  else
+    grep -A1 CFBundleShortVersionString "$plist" | sed -n 's:.*<string>\(.*\)</string>.*:\1:p'
+  fi
+}
+
+# Prints "<clientVersionUpload> <version>" for the configured channel.
+fetch_latest() {
+  local json
+  json="$(curl -fsSL --retry 3 --connect-timeout 10 "$(version_url)")" \
+    || die "could not reach Roblox's version service ($(version_url))"
+  json_js '
+    var d = JSON.parse(args[0]);
+    if (!d.clientVersionUpload) throw new Error(JSON.stringify(d));
+    return d.clientVersionUpload + " " + d.version;
+  ' "$json" || die "unexpected response from version service: $json"
+}
+
+roblox_running() { pgrep -x RobloxPlayer >/dev/null 2>&1; }
+
+# ---------------------------------------------------------------------------
+# FastFlags
+# ---------------------------------------------------------------------------
+
+ensure_fflags_file() {
+  mkdir -p "$SUPPORT_DIR"
+  [ -s "$FFLAGS_FILE" ] || printf '{}\n' > "$FFLAGS_FILE"
+}
+
+# Write the user's flags into the installed client.
+apply_fflags() {
+  local app dir
+  app="$(app_path)"
+  [ -d "$app" ] || return 0
+  ensure_fflags_file
+  dir="$app/Contents/MacOS/ClientSettings"
+  mkdir -p "$dir"
+  # Round-trip through the JSON parser so a hand-edited file with a typo is
+  # caught here rather than silently ignored by Roblox.
+  json_js 'return JSON.stringify(JSON.parse(args[0]), null, 2);' "$(cat "$FFLAGS_FILE")" \
+    > "$dir/ClientAppSettings.json.tmp" || { rm -f "$dir/ClientAppSettings.json.tmp"; die "$FFLAGS_FILE is not valid JSON"; }
+  mv "$dir/ClientAppSettings.json.tmp" "$dir/ClientAppSettings.json"
+}
+
+# Turn a CLI value into a JSON value: true/false/numbers stay typed,
+# everything else becomes a string. Roblox accepts both for most flags.
+cmd_fflags() {
+  ensure_fflags_file
+  local sub="${1:-list}"; [ $# -gt 0 ] && shift
+  local current; current="$(cat "$FFLAGS_FILE")"
+  case "$sub" in
+    list|ls)
+      json_js '
+        var d = JSON.parse(args[0]), k = Object.keys(d).sort();
+        if (!k.length) return "(no FastFlags set)";
+        return k.map(function (n) { return n + " = " + JSON.stringify(d[n]); }).join("\n");
+      ' "$current"
+      return ;;
+    set)
+      [ $# -eq 2 ] || die "usage: fflags set <FlagName> <value>"
+      json_js '
+        var d = JSON.parse(args[0]), v = args[2];
+        if (v === "true") v = true;
+        else if (v === "false") v = false;
+        else if (/^-?\d+$/.test(v)) v = parseInt(v, 10);
+        d[args[1]] = v;
+        return JSON.stringify(d, null, 2);
+      ' "$current" "$1" "$2" > "$FFLAGS_FILE.tmp"
+      ok "set $1" ;;
+    unset|rm|remove)
+      [ $# -ge 1 ] || die "usage: fflags unset <FlagName>..."
+      json_js '
+        var d = JSON.parse(args[0]);
+        for (var i = 1; i < args.length; i++) delete d[args[i]];
+        return JSON.stringify(d, null, 2);
+      ' "$current" "$@" > "$FFLAGS_FILE.tmp"
+      ok "removed $*" ;;
+    import)
+      [ $# -eq 1 ] || die "usage: fflags import <file.json>"
+      [ -f "$1" ] || die "no such file: $1"
+      json_js '
+        var d = JSON.parse(args[0]), n = JSON.parse(args[1]);
+        if (typeof n !== "object" || n === null || Array.isArray(n)) throw new Error("expected a JSON object");
+        for (var k in n) d[k] = n[k];
+        return JSON.stringify(d, null, 2);
+      ' "$current" "$(cat "$1")" > "$FFLAGS_FILE.tmp" 2>/dev/null || { rm -f "$FFLAGS_FILE.tmp"; die "$1 is not a JSON object of flags"; }
+      ok "imported flags from $1" ;;
+    clear)
+      printf '{}\n' > "$FFLAGS_FILE.tmp"
+      ok "cleared all FastFlags" ;;
+    edit)
+      "${EDITOR:-nano}" "$FFLAGS_FILE"
+      json_js 'JSON.parse(args[0]); return "ok";' "$(cat "$FFLAGS_FILE")" >/dev/null \
+        || die "$FFLAGS_FILE is no longer valid JSON; fix it and run \`$0 fflags apply\`"
+      ;;
+    apply) ;;
+    path) printf '%s\n' "$FFLAGS_FILE"; return ;;
+    *) die "unknown fflags command '$sub' (list, set, unset, import, clear, edit, apply, path)" ;;
+  esac
+  [ -f "$FFLAGS_FILE.tmp" ] && mv "$FFLAGS_FILE.tmp" "$FFLAGS_FILE"
+  if [ -d "$(app_path)" ]; then
+    apply_fflags
+    ok "FastFlags written to Roblox"
+    roblox_running && warn "Roblox is running; restart it for flag changes to take effect"
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# Install / update
+# ---------------------------------------------------------------------------
+
+install_version() {
+  local hash="$1" display="$2" url tmp app dest_parent
+  url="$(download_url "$hash")"
+  app="$(app_path)"
+  dest_parent="$INSTALL_DIR"
+
+  if [ ! -d "$dest_parent" ]; then
+    mkdir -p "$dest_parent" 2>/dev/null || die "cannot create $dest_parent"
+  fi
+  if [ ! -w "$dest_parent" ]; then
+    die "$dest_parent is not writable; run \`$0 config set INSTALL_DIR ~/Applications\` or re-run with sudo"
+  fi
+  if roblox_running; then
+    die "Roblox is running; quit it before updating"
+  fi
+
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/roblox-bootstrapper.XXXXXX")"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$tmp'" EXIT
+
+  info "Downloading Roblox $display ($(resolve_arch), channel $CHANNEL)"
+  local progress="-#"; [ -t 2 ] || progress="-sS"
+  curl -fL $progress --retry 3 --connect-timeout 15 -o "$tmp/RobloxPlayer.zip" "$url" \
+    || die "download failed: $url"
+
+  info "Extracting"
+  mkdir -p "$tmp/x"
+  if command -v ditto >/dev/null 2>&1; then
+    ditto -x -k "$tmp/RobloxPlayer.zip" "$tmp/x" || die "archive is corrupt"
+  else
+    unzip -q "$tmp/RobloxPlayer.zip" -d "$tmp/x" || die "archive is corrupt"
+  fi
+  [ -d "$tmp/x/RobloxPlayer.app" ] || die "archive did not contain RobloxPlayer.app"
+
+  # Swap the new app in; keep the old one until the move succeeds.
+  if [ -d "$app" ]; then
+    mv "$app" "$tmp/old.app" || die "could not move old $app out of the way"
+  fi
+  if ! mv "$tmp/x/RobloxPlayer.app" "$app"; then
+    [ -d "$tmp/old.app" ] && mv "$tmp/old.app" "$app"
+    die "could not install to $app"
+  fi
+
+  is_macos && xattr -dr com.apple.quarantine "$app" 2>/dev/null || true
+  mkdir -p "$SUPPORT_DIR"
+  printf '%s\n' "$hash" > "$STATE_FILE"
+  apply_fflags
+
+  rm -rf "$tmp"; trap - EXIT
+  ok "Roblox $display installed at $app"
+}
+
+# Returns 0 after installing/updating, 1 if already current.
+update_if_needed() {
+  local force="${1:-}" latest hash display current
+  latest="$(fetch_latest)"
+  hash="${latest%% *}"; display="${latest#* }"
+  current="$(installed_version)"
+  if [ -z "$force" ] && [ "$current" = "$hash" ]; then
+    return 1
+  fi
+  if [ -n "$current" ]; then info "Updating Roblox $(installed_display_version) → $display"
+  else info "Installing Roblox $display"; fi
+  notify "Roblox Bootstrapper" "Installing Roblox $display…"
+  install_version "$hash" "$display"
+  return 0
+}
+
+cmd_install() {
+  local force=""
+  [ "${1:-}" = "--force" ] || [ "${1:-}" = "-f" ] && force=1
+  if ! update_if_needed "$force"; then
+    ok "Roblox is up to date ($(installed_display_version))"
+    apply_fflags
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Launch
+# ---------------------------------------------------------------------------
+
+cmd_launch() {
+  local url="${1:-}"
+  is_macos || die "launching Roblox requires macOS"
+
+  if roblox_running && [ -z "$url" ]; then
+    open -a "$(app_path)"; return
+  fi
+
+  if ! roblox_running; then
+    # Never block a launch on a network hiccup if Roblox is already installed.
+    if [ -d "$(app_path)" ]; then
+      ( update_if_needed ) || true
+    else
+      update_if_needed || true
+    fi
+    apply_fflags
+  fi
+  [ -d "$(app_path)" ] || die "Roblox is not installed"
+
+  if [ -n "$url" ]; then
+    case "$url" in
+      roblox-player:*|roblox:*) ;;
+      *) die "not a Roblox link: $url" ;;
+    esac
+    info "Joining game"
+    log "launch url"
+    # `open -a` hands the link to Roblox.app specifically; a bare `open <url>`
+    # would bounce it back to us when we are the registered handler.
+    open -a "$(app_path)" "$url"
+  else
+    info "Starting Roblox"
+    open -a "$(app_path)"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# roblox:// link handler
+#
+# A tiny AppleScript applet that forwards links to this script, registered as
+# the default handler for roblox:// and roblox-player:// so website launches
+# go through the bootstrapper (and get updates + FastFlags).
+# ---------------------------------------------------------------------------
+
+self_path() {
+  local src="${BASH_SOURCE[0]}" dir
+  dir="$(cd "$(dirname "$src")" && pwd -P)"
+  printf '%s/%s' "$dir" "$(basename "$src")"
+}
+
+set_url_handler() {
+  local bundle_id="$1"
+  osascript -l JavaScript - "$bundle_id" >/dev/null <<'EOF'
+ObjC.import('CoreServices');
+function run(argv) {
+  ['roblox-player', 'roblox'].forEach(function (scheme) {
+    var rc = $.LSSetDefaultHandlerForURLScheme($(scheme), $(argv[0]));
+    if (rc !== 0) throw new Error('LSSetDefaultHandlerForURLScheme(' + scheme + ') failed: ' + rc);
+  });
+}
+EOF
+}
+
+cmd_register() {
+  is_macos || die "registering a link handler requires macOS"
+  local self; self="$(self_path)"
+  local script="$SUPPORT_DIR/handler.applescript"
+  mkdir -p "$SUPPORT_DIR" "$(dirname "$HANDLER_APP")"
+
+  cat > "$script" <<EOF
+on open location theURL
+	do shell script quoted form of "$self" & " launch " & quoted form of theURL & " >/dev/null 2>&1 &"
+end open location
+
+on run
+	do shell script quoted form of "$self" & " launch >/dev/null 2>&1 &"
+end run
+EOF
+  rm -rf "$HANDLER_APP"
+  osacompile -o "$HANDLER_APP" "$script" || die "osacompile failed"
+
+  local plist="$HANDLER_APP/Contents/Info.plist"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $HANDLER_BUNDLE_ID" "$plist" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string $HANDLER_BUNDLE_ID" "$plist"
+  /usr/libexec/PlistBuddy -c "Add :LSUIElement bool true" "$plist" 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes array" \
+    -c "Add :CFBundleURLTypes:0 dict" \
+    -c "Add :CFBundleURLTypes:0:CFBundleURLName string Roblox" \
+    -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" \
+    -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string roblox-player" \
+    -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:1 string roblox" \
+    "$plist"
+  # Editing Info.plist invalidates osacompile's signature; re-sign ad hoc.
+  codesign --force --deep --sign - "$HANDLER_APP" >/dev/null 2>&1 || true
+
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$HANDLER_APP"
+  set_url_handler "$HANDLER_BUNDLE_ID" || die "could not set the default handler for roblox:// links"
+  ok "roblox:// links now open through the bootstrapper ($HANDLER_APP)"
+  warn "keep this script at $self — the link handler calls it by path"
+}
+
+cmd_unregister() {
+  is_macos || die "requires macOS"
+  set_url_handler "com.roblox.RobloxPlayer" || warn "could not hand roblox:// links back to Roblox"
+  if [ -d "$HANDLER_APP" ]; then
+    /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$HANDLER_APP" 2>/dev/null || true
+    rm -rf "$HANDLER_APP"
+  fi
+  ok "roblox:// links open Roblox directly again"
+}
+
+# ---------------------------------------------------------------------------
+# Config / status / uninstall
+# ---------------------------------------------------------------------------
+
+cmd_config() {
+  local sub="${1:-show}"; [ $# -gt 0 ] && shift
+  case "$sub" in
+    show)
+      printf 'CHANNEL=%s\nINSTALL_DIR=%s\nARCH=%s\n' "$CHANNEL" "$INSTALL_DIR" "$ARCH" ;;
+    set)
+      [ $# -eq 2 ] || die "usage: config set <CHANNEL|INSTALL_DIR|ARCH> <value>"
+      local key="$1" val="$2"
+      case "$key" in
+        CHANNEL|channel) key=CHANNEL ;;
+        INSTALL_DIR|install_dir) key=INSTALL_DIR; val="${val/#\~/$HOME}" ;;
+        ARCH|arch) key=ARCH
+          case "$val" in auto|arm64|x86_64) ;; *) die "ARCH must be auto, arm64 or x86_64" ;; esac ;;
+        *) die "unknown setting '$key' (CHANNEL, INSTALL_DIR, ARCH)" ;;
+      esac
+      mkdir -p "$SUPPORT_DIR"; touch "$CONFIG_FILE"
+      grep -v "^$key=" "$CONFIG_FILE" > "$CONFIG_FILE.tmp" || true
+      printf '%s=%q\n' "$key" "$val" >> "$CONFIG_FILE.tmp"
+      mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
+      ok "$key=$val (run \`$0 install --force\` to switch builds)" ;;
+    reset) rm -f "$CONFIG_FILE"; ok "settings reset to defaults" ;;
+    *) die "unknown config command '$sub' (show, set, reset)" ;;
+  esac
+}
+
+cmd_status() {
+  local latest cur
+  printf '%sRoblox Bootstrapper%s %s\n\n' "$C_BOLD" "$C_OFF" "$VERSION"
+  printf '  Install path   %s\n' "$(app_path)"
+  printf '  Channel        %s\n' "$CHANNEL"
+  printf '  Architecture   %s\n' "$(resolve_arch)"
+  cur="$(installed_version)"
+  if [ -n "$cur" ]; then printf '  Installed      %s %s(%s)%s\n' "$(installed_display_version)" "$C_DIM" "$cur" "$C_OFF"
+  elif [ -d "$(app_path)" ]; then printf '  Installed      %s (not managed by the bootstrapper)\n' "$(installed_display_version)"
+  else printf '  Installed      no\n'; fi
+  if latest="$(fetch_latest 2>/dev/null)"; then
+    printf '  Latest         %s %s(%s)%s\n' "${latest#* }" "$C_DIM" "${latest%% *}" "$C_OFF"
+    if [ "$cur" = "${latest%% *}" ]; then printf '  Status         %sup to date%s\n' "$C_GRN" "$C_OFF"
+    else printf '  Status         %supdate available%s\n' "$C_YEL" "$C_OFF"; fi
+  else
+    printf '  Latest         (offline)\n'
+  fi
+  ensure_fflags_file
+  printf '  FastFlags      %s set\n' "$(json_js 'return Object.keys(JSON.parse(args[0])).length;' "$(cat "$FFLAGS_FILE")")"
+  if [ -d "$HANDLER_APP" ]; then printf '  Link handler   registered\n'
+  else printf '  Link handler   not registered\n'; fi
+}
+
+cmd_uninstall() {
+  local purge=""
+  [ "${1:-}" = "--purge" ] && purge=1
+  roblox_running && die "quit Roblox first"
+  if [ -d "$HANDLER_APP" ]; then cmd_unregister; fi
+  if [ -d "$(app_path)" ]; then rm -rf "$(app_path)"; ok "removed $(app_path)"; fi
+  rm -f "$STATE_FILE"
+  if [ -n "$purge" ]; then
+    rm -rf "$SUPPORT_DIR"
+    ok "removed bootstrapper settings and FastFlags"
+  else
+    info "kept your FastFlags and settings in $SUPPORT_DIR (use --purge to remove)"
+  fi
+}
+
+usage() {
+  cat <<EOF
+${C_BOLD}roblox-bootstrapper${C_OFF} $VERSION — install, update and launch Roblox on macOS
+
+${C_BOLD}Usage:${C_OFF} $(basename "$0") <command> [args]
+
+  install [--force]         Install Roblox, or update it if a new version is out
+  update                    Same as install
+  launch [roblox-link]      Update if needed, apply FastFlags, and start Roblox
+  status                    Show installed/latest versions and settings
+
+  fflags list               Show your FastFlags
+  fflags set <Flag> <val>   Set a flag (true/false/integers are typed automatically)
+  fflags unset <Flag>...    Remove flags
+  fflags import <file>      Merge flags from a JSON file
+  fflags edit | clear       Edit in \$EDITOR / remove all flags
+  fflags apply              Re-write flags into the installed client
+
+  register                  Open roblox:// website links through the bootstrapper
+  unregister                Hand roblox:// links back to Roblox
+  config [show]             Show settings
+  config set <KEY> <value>  CHANNEL (default LIVE), INSTALL_DIR (default
+                            /Applications), ARCH (auto, arm64, x86_64)
+  uninstall [--purge]       Remove Roblox (and with --purge, your settings)
+
+Settings and flags live in: $SUPPORT_DIR
+EOF
+}
+
+main() {
+  local cmd="${1:-}"; [ $# -gt 0 ] && shift
+  case "$cmd" in
+    install|update) cmd_install "$@" ;;
+    launch|play) cmd_launch "$@" ;;
+    roblox-player:*|roblox:*) cmd_launch "$cmd" ;;
+    status) cmd_status ;;
+    fflags|flags) cmd_fflags "$@" ;;
+    register) cmd_register ;;
+    unregister) cmd_unregister ;;
+    config) cmd_config "$@" ;;
+    uninstall) cmd_uninstall "$@" ;;
+    version|--version|-v) printf '%s\n' "$VERSION" ;;
+    help|--help|-h|"") usage ;;
+    *) usage >&2; die "unknown command '$cmd'" ;;
+  esac
+}
+
+main "$@"
