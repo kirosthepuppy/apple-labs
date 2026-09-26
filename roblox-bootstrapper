@@ -429,12 +429,22 @@ EOF
     -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string roblox-player" \
     -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:1 string roblox" \
     "$plist"
+  # Use Roblox's icon so the app works as a Dock/Spotlight launcher.
+  local icon
+  icon="$(app_path)/Contents/Resources/$(defaults read "$(app_path)/Contents/Info.plist" CFBundleIconFile 2>/dev/null || echo AppIcon)"
+  case "$icon" in *.icns) ;; *) icon="$icon.icns" ;; esac
+  if [ -f "$icon" ]; then
+    cp "$icon" "$HANDLER_APP/Contents/Resources/applet.icns"
+    rm -f "$HANDLER_APP/Contents/Resources/Assets.car"
+    /usr/libexec/PlistBuddy -c "Delete :CFBundleIconName" "$plist" 2>/dev/null || true
+  fi
   # Editing Info.plist invalidates osacompile's signature; re-sign ad hoc.
   codesign --force --deep --sign - "$HANDLER_APP" >/dev/null 2>&1 || true
 
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$HANDLER_APP"
   set_url_handler "$HANDLER_BUNDLE_ID" || die "could not set the default handler for roblox:// links"
   ok "roblox:// links now open through the bootstrapper ($HANDLER_APP)"
+  info "Open \"$(basename "$HANDLER_APP" .app)\" from Spotlight, Launchpad or the Dock to launch Roblox"
   warn "keep this script at $self — the link handler calls it by path"
 }
 

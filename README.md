@@ -11,6 +11,9 @@ macOS (`curl`, `ditto`, `osascript`, `PlistBuddy`).
 - **Handles website links.** `register` makes `roblox://` / `roblox-player://`
   links go through the bootstrapper, so joining from the browser also updates
   Roblox and applies your flags first.
+- **A launcher app.** `register` also makes `~/Applications/Roblox Bootstrapper.app`
+  (with the Roblox icon). Open it from Spotlight or Launchpad, or drag it to the
+  Dock, and use it instead of Roblox itself so every launch updates first.
 - **Channels.** Can follow a non-LIVE deployment channel if you have access to one.
 
 ## Install
