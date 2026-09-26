@@ -16,13 +16,17 @@ macOS (`curl`, `ditto`, `osascript`, `PlistBuddy`).
 ## Install
 
 ```sh
-curl -fsSL -o ~/bin/roblox-bootstrapper \
+mkdir -p ~/.local/bin
+curl -fsSL -o ~/.local/bin/roblox-bootstrapper \
   https://raw.githubusercontent.com/kirosthepuppy/macOS-bootstrapper/main/roblox-bootstrapper
-chmod +x ~/bin/roblox-bootstrapper
+chmod +x ~/.local/bin/roblox-bootstrapper
 
 roblox-bootstrapper install     # download and install Roblox
 roblox-bootstrapper register    # optional: send roblox:// links through the bootstrapper
 ```
+
+If your shell can't find `roblox-bootstrapper`, add `~/.local/bin` to your PATH:
+`echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc`, then open a new terminal.
 
 (Or just clone the repo and run `./roblox-bootstrapper`.)
 
