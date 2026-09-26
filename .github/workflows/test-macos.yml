@@ -89,7 +89,7 @@ jobs:
           $BS register
           test -d "$HOME/Applications/Roblox Bootstrapper.app"
           handler() {
-            osascript -l JavaScript -e 'ObjC.import("CoreServices"); function run(a) { return ObjC.unwrap($.LSCopyDefaultHandlerForURLScheme($(a[0]))); }' "$1"
+            osascript -l JavaScript -e 'ObjC.import("CoreServices"); function run(a) { return ObjC.unwrap(ObjC.castRefToObject($.LSCopyDefaultHandlerForURLScheme($(a[0])))); }' "$1"
           }
           handler roblox-player
           [ "$(handler roblox-player)" = "com.robloxbootstrapper.handler" ]
