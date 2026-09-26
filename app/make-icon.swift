@@ -3,7 +3,7 @@
 //   swiftc -O make-icon.swift -o make-icon && ./make-icon AppIcon.iconset
 //
 // The artwork is drawn in code so the repository needs no image files: a
-// deep violet squircle with a glowing glass flask of bubbling pink liquid.
+// deep violet squircle with a glass flask of bubbling pink liquid.
 
 import CoreGraphics
 import Foundation
@@ -38,14 +38,6 @@ func drawIcon(_ ctx: CGContext, pixels: Int) {
                               colors: [color(0.27, 0.17, 0.62), color(0.10, 0.07, 0.28), color(0.04, 0.05, 0.14)] as CFArray,
                               locations: [0, 0.55, 1])!
     ctx.drawLinearGradient(backdrop, start: CGPoint(x: 512, y: 924), end: CGPoint(x: 512, y: 100), options: [])
-    // The flask's glow.
-    let glow = CGGradient(colorsSpace: srgb, colors: [color(1.0, 0.35, 0.62, 0.55), color(1.0, 0.35, 0.62, 0)] as CFArray,
-                          locations: [0, 1])!
-    ctx.drawRadialGradient(glow, startCenter: CGPoint(x: 512, y: 330), startRadius: 0,
-                           endCenter: CGPoint(x: 512, y: 330), endRadius: 420, options: [])
-    // Soft sheen along the top.
-    let sheen = CGGradient(colorsSpace: srgb, colors: [color(1, 1, 1, 0.16), color(1, 1, 1, 0)] as CFArray, locations: [0, 1])!
-    ctx.drawLinearGradient(sheen, start: CGPoint(x: 512, y: 924), end: CGPoint(x: 512, y: 640), options: [])
     ctx.restoreGState()
 
     // The flask: a straight neck flaring into a wide, round-cornered base.
