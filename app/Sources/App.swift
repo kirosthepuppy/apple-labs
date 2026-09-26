@@ -74,13 +74,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         linkWindow = nil
         if mainWindow == nil {
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 820, height: 560),
+                contentRect: NSRect(x: 0, y: 0, width: 1100, height: 720),
                 styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                 backing: .buffered, defer: false)
             window.title = "Roblox Bootstrapper"
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.isMovableByWindowBackground = true
+            window.appearance = NSAppearance(named: .darkAqua)
+            window.backgroundColor = .black
             window.contentViewController = NSHostingController(
-                rootView: ContentView().environmentObject(model))
-            window.setFrameAutosaveName("MainWindow")
+                rootView: RootView().environmentObject(model))
+            window.setFrameAutosaveName("LauncherWindow")
             window.isReleasedWhenClosed = false
             window.delegate = self
             if !window.setFrameUsingName("MainWindow") { window.center() }
@@ -93,10 +98,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func showLinkWindow() {
         guard linkWindow == nil else { return }
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 150),
-            styleMask: [.titled, .closable],
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 160),
+            styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered, defer: false)
         window.title = "Roblox Bootstrapper"
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.backgroundColor = .black
         window.contentViewController = NSHostingController(
             rootView: LinkLaunchView().environmentObject(model))
         window.isReleasedWhenClosed = false

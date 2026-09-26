@@ -80,6 +80,14 @@ final class LauncherModel: ObservableObject {
     @Published var closeOnLaunch: Bool {
         didSet { UserDefaults.standard.set(closeOnLaunch, forKey: "closeOnLaunch") }
     }
+    @Published var theme: LauncherTheme {
+        didSet { UserDefaults.standard.set(theme.rawValue, forKey: "theme") }
+    }
+    @Published var animatedBackground: Bool {
+        didSet { UserDefaults.standard.set(animatedBackground, forKey: "animatedBackground") }
+    }
+    /// Fonts installed on this Mac that Roblox can load (.ttf/.otf).
+    @Published var macFonts: [MacFont] = []
 
     private var process: Process?
     private var observers: [NSObjectProtocol] = []
@@ -97,8 +105,10 @@ final class LauncherModel: ObservableObject {
     }
 
     init() {
-        UserDefaults.standard.register(defaults: ["closeOnLaunch": true])
+        UserDefaults.standard.register(defaults: ["closeOnLaunch": true, "animatedBackground": true])
         closeOnLaunch = UserDefaults.standard.bool(forKey: "closeOnLaunch")
+        theme = LauncherTheme(rawValue: UserDefaults.standard.string(forKey: "theme") ?? "") ?? .sunset
+        animatedBackground = UserDefaults.standard.bool(forKey: "animatedBackground")
         try? FileManager.default.createDirectory(at: modsURL, withIntermediateDirectories: true)
         loadFlags()
         refreshRunning()
@@ -291,8 +301,8 @@ final class LauncherModel: ObservableObject {
 
     // MARK: - Mods
 
-    private func modURL(_ relative: String) -> URL { modsURL.appendingPathComponent(relative) }
-    private func robloxResource(_ relative: String) -> URL {
+    func modURL(_ relative: String) -> URL { modsURL.appendingPathComponent(relative) }
+    func robloxResource(_ relative: String) -> URL {
         robloxAppURL.appendingPathComponent("Contents/Resources").appendingPathComponent(relative)
     }
 
@@ -369,14 +379,20 @@ final class LauncherModel: ObservableObject {
         modsChanged()
     }
 
-    func setFont(_ file: URL?) {
+    func setFont(_ file: URL?, name: String? = nil) {
         Self.fontPaths.forEach { removeMod(modURL($0)) }
         if let file {
             let ext = file.pathExtension.lowercased() == "otf" ? "otf" : "ttf"
             installMod(from: file, to: modURL("content/fonts/CustomFont.\(ext)"))
-            UserDefaults.standard.set(file.deletingPathExtension().lastPathComponent, forKey: "customFontName")
+            UserDefaults.standard.set(name ?? Self.familyName(of: file) ?? file.deletingPathExtension().lastPathComponent,
+                                      forKey: "customFontName")
         }
         modsChanged()
+    }
+
+    /// The installed custom font file, if any.
+    var customFontURL: URL? {
+        Self.fontPaths.map(modURL).first { FileManager.default.fileExists(atPath: $0.path) }
     }
 
     func clearMods() {
@@ -401,7 +417,7 @@ final class LauncherModel: ObservableObject {
         try? FileManager.default.removeItem(at: url)
     }
 
-    private func modsChanged() {
+    func modsChanged() {
         modsRevision += 1
         applyQuietly(["mods", "apply"])
     }

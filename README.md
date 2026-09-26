@@ -39,12 +39,21 @@ If your shell can't find `roblox-bootstrapper`, add `~/.local/bin` to your PATH:
 
 ## The launcher app
 
-| Section   | What it does |
-|-----------|--------------|
-| Play      | Launch Roblox (updating first if needed), see the installed and latest version, restart Roblox after changing settings. |
-| Mods      | Death sound (default, classic "oof", or your own file), mouse cursor (default, classic arrow, or your own image), custom font, and the mods folder. |
-| FastFlags | Presets for frame rate limit, MSAA, texture quality, post-processing, grass and sky, plus a full editor with JSON import/export (works with Bloxstrap/Fishstrap exports). |
-| Settings  | Close the launcher once Roblox starts, handle website links, channel, install location, build, reinstall. |
+A dark, glassy launcher with a drifting colour background and springy
+animations throughout (all driven by Core Animation, so it idles at ~0% CPU;
+Reduce Motion is respected).
+
+| Page          | What it does |
+|---------------|--------------|
+| Home          | Big Play button with live update progress, the installed version, Restart Roblox after changes, and a "Your setup" overview that links to every page. |
+| Presets       | One-click graphics profiles: Roblox default, Balanced, Performance, Quality and Potato. |
+| Cursor        | Default, the classic black arrow, or your own image, with previews. |
+| Font          | Any .ttf/.otf font on your Mac (searchable, shown in its own typeface) or a font file, with a live preview. |
+| Game settings | Frame rate limit, anti-aliasing, texture quality, post-processing, grass and sky, plus a full FastFlag editor with JSON import/export (works with Bloxstrap/Fishstrap exports). |
+| Mods          | Death sound (default, classic "oof", or your own, with previews) and the mods folder. |
+| Appearance    | Five colour themes and the animated background. |
+| Settings      | Close on launch, website links, channel, install location, build, reinstall. |
+| Help          | Common questions, the log, and a link to report problems. |
 
 When you click **Play** on the Roblox website, the launcher shows a small
 progress window, updates and applies your mods and flags, then hands the game

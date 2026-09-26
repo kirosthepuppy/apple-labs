@@ -1,0 +1,242 @@
+import AppKit
+import CoreText
+import SwiftUI
+
+struct MacFont: Identifiable, Hashable {
+    let family: String
+    let postScriptName: String
+    let url: URL
+    var id: String { family }
+}
+
+/// A one-click bundle of engine FastFlags.
+struct GraphicsPreset: Identifiable {
+    let id: String
+    let name: String
+    let symbol: String
+    let blurb: String
+    let highlights: [String]
+    let flags: [String: FlagValue]
+}
+
+/// The launcher's overall state, shown in the status pills.
+enum LauncherState: Equatable {
+    case checking, notInstalled, updateReady, ready, working, playing, failed
+
+    var label: String {
+        switch self {
+        case .checking: return "Checking"
+        case .notInstalled: return "Not installed"
+        case .updateReady: return "Update ready"
+        case .ready: return "Ready"
+        case .working: return "Working"
+        case .playing: return "Playing"
+        case .failed: return "Needs attention"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .ready: return .green
+        case .playing: return Color(red: 0.35, green: 0.65, blue: 1)
+        case .working, .checking: return .orange
+        case .updateReady, .notInstalled: return .yellow
+        case .failed: return .red
+        }
+    }
+
+    var pulses: Bool { self == .working || self == .playing || self == .checking }
+}
+
+extension LauncherModel {
+    // MARK: - State
+
+    var state: LauncherState {
+        if busy { return .working }
+        if errorMessage != nil { return .failed }
+        if robloxRunning { return .playing }
+        guard let status else { return .checking }
+        if status.installed == nil { return .notInstalled }
+        if status.upToDate == false { return .updateReady }
+        return .ready
+    }
+
+    /// "0.740" from "0.740.0.7400927".
+    var shortVersion: String? {
+        guard let v = status?.installed else { return nil }
+        return v.split(separator: ".").prefix(2).joined(separator: ".")
+    }
+
+    // MARK: - Presets
+
+    static let presetKeys: Set<String> = [
+        "DFIntTaskSchedulerTargetFps", "FIntDebugForceMSAASamples",
+        "DFFlagTextureQualityOverrideEnabled", "DFIntTextureQualityOverride",
+        "FFlagDisablePostFx", "FFlagDebugSkyGray",
+        "FIntFRMMinGrassDistance", "FIntFRMMaxGrassDistance", "FIntRenderGrassDetailStrands",
+    ]
+
+    static let presets: [GraphicsPreset] = [
+        GraphicsPreset(
+            id: "default", name: "Roblox default", symbol: "circle.dashed",
+            blurb: "No engine tweaks. Roblox decides everything.",
+            highlights: ["Stock settings"], flags: [:]),
+        GraphicsPreset(
+            id: "balanced", name: "Balanced", symbol: "scale.3d",
+            blurb: "Smoother than stock without giving up looks.",
+            highlights: ["120 FPS cap", "2× anti-aliasing"],
+            flags: [
+                "DFIntTaskSchedulerTargetFps": .int(120),
+                "FIntDebugForceMSAASamples": .int(2),
+            ]),
+        GraphicsPreset(
+            id: "performance", name: "Performance", symbol: "bolt.fill",
+            blurb: "High frame rates for competitive games.",
+            highlights: ["240 FPS cap", "No anti-aliasing", "Low textures", "No post effects", "No grass"],
+            flags: [
+                "DFIntTaskSchedulerTargetFps": .int(240),
+                "FIntDebugForceMSAASamples": .int(1),
+                "DFFlagTextureQualityOverrideEnabled": .bool(true),
+                "DFIntTextureQualityOverride": .int(1),
+                "FFlagDisablePostFx": .bool(true),
+                "FIntFRMMinGrassDistance": .int(0),
+                "FIntFRMMaxGrassDistance": .int(0),
+                "FIntRenderGrassDetailStrands": .int(0),
+            ]),
+        GraphicsPreset(
+            id: "quality", name: "Quality", symbol: "sparkles",
+            blurb: "Crisp edges and full textures on a strong Mac.",
+            highlights: ["120 FPS cap", "4× anti-aliasing", "High textures"],
+            flags: [
+                "DFIntTaskSchedulerTargetFps": .int(120),
+                "FIntDebugForceMSAASamples": .int(4),
+                "DFFlagTextureQualityOverrideEnabled": .bool(true),
+                "DFIntTextureQualityOverride": .int(3),
+            ]),
+        GraphicsPreset(
+            id: "potato", name: "Potato", symbol: "leaf.fill",
+            blurb: "Everything turned down for older Macs.",
+            highlights: ["60 FPS cap", "Lowest textures", "No post effects", "No grass", "Gray sky"],
+            flags: [
+                "DFIntTaskSchedulerTargetFps": .int(60),
+                "FIntDebugForceMSAASamples": .int(1),
+                "DFFlagTextureQualityOverrideEnabled": .bool(true),
+                "DFIntTextureQualityOverride": .int(0),
+                "FFlagDisablePostFx": .bool(true),
+                "FFlagDebugSkyGray": .bool(true),
+                "FIntFRMMinGrassDistance": .int(0),
+                "FIntFRMMaxGrassDistance": .int(0),
+                "FIntRenderGrassDetailStrands": .int(0),
+            ]),
+    ]
+
+    /// The preset whose flags exactly match the current engine flags.
+    var activePreset: GraphicsPreset? {
+        let current = flags.filter { Self.presetKeys.contains($0.key) }
+        return Self.presets.first { $0.flags == current }
+    }
+
+    func applyPreset(_ preset: GraphicsPreset) {
+        var changes: [String: FlagValue?] = [:]
+        for key in Self.presetKeys { changes[key] = .some(nil) }
+        for (key, value) in preset.flags { changes[key] = value }
+        setFlags(changes)
+    }
+
+    /// Plain-English names for the engine flags that are set.
+    var flagSummary: String {
+        let names: [(String, String)] = [
+            ("DFIntTaskSchedulerTargetFps", "frame rate"),
+            ("FIntDebugForceMSAASamples", "anti-aliasing"),
+            ("DFIntTextureQualityOverride", "textures"),
+            ("FFlagDisablePostFx", "post effects"),
+            ("FIntRenderGrassDetailStrands", "grass"),
+            ("FFlagDebugSkyGray", "sky"),
+        ]
+        let set = names.filter { flags[$0.0] != nil }.map(\.1)
+        let others = flags.keys.filter { !Self.presetKeys.contains($0) }.count
+        var parts = set
+        if others > 0 { parts.append("\(others) custom flag\(others == 1 ? "" : "s")") }
+        guard !parts.isEmpty else { return "Using Roblox's defaults" }
+        return parts.joined(separator: ", ").prefix(1).uppercased() + parts.joined(separator: ", ").dropFirst()
+    }
+
+    // MARK: - Mods summary
+
+    var activeModCount: Int {
+        var count = 0
+        if deathSound != .standard { count += 1 }
+        if cursorStyle != .standard { count += 1 }
+        if customFontURL != nil { count += 1 }
+        let known = Set([Self.deathSoundPath] + Self.cursorPaths + Self.fontPaths)
+        if let e = FileManager.default.enumerator(at: modsURL, includingPropertiesForKeys: [.isRegularFileKey]) {
+            let base = modsURL.standardizedFileURL.path + "/"
+            for case let url as URL in e where url.lastPathComponent != ".DS_Store" {
+                guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
+                let rel = url.standardizedFileURL.path.replacingOccurrences(of: base, with: "")
+                if !known.contains(rel) { count += 1 }
+            }
+        }
+        return count
+    }
+
+    /// Roblox's original copy of a resource, even while a mod replaces it.
+    func originalResource(_ relative: String) -> URL {
+        let backup = supportURL.appendingPathComponent("ModBackups").appendingPathComponent(relative)
+        return FileManager.default.fileExists(atPath: backup.path) ? backup : robloxResource(relative)
+    }
+
+    var deathSoundLabel: String {
+        switch deathSound {
+        case .standard: return "Default"
+        case .classic: return "Classic \u{201C}oof\u{201D}"
+        case .custom: return "Custom sound"
+        }
+    }
+
+    var cursorLabel: String {
+        switch cursorStyle {
+        case .standard: return "Default"
+        case .classic: return "Classic arrow"
+        case .custom: return "Custom image"
+        }
+    }
+
+    // MARK: - Fonts
+
+    /// Loads the Mac's .ttf/.otf font families in the background.
+    func loadMacFonts() {
+        guard macFonts.isEmpty else { return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let manager = NSFontManager.shared
+            var result: [MacFont] = []
+            for family in manager.availableFontFamilies where !family.hasPrefix(".") {
+                guard let members = manager.availableMembers(ofFontFamily: family), !members.isEmpty else { continue }
+                let regular = members.first { ($0[1] as? String) == "Regular" } ?? members[0]
+                guard let name = regular[0] as? String,
+                      let font = NSFont(name: name, size: 13),
+                      let url = CTFontCopyAttribute(font as CTFont, kCTFontURLAttribute) as? URL,
+                      ["ttf", "otf"].contains(url.pathExtension.lowercased())
+                else { continue }
+                result.append(MacFont(family: family, postScriptName: name, url: url))
+            }
+            DispatchQueue.main.async { self.macFonts = result }
+        }
+    }
+
+    static func familyName(of url: URL) -> String? {
+        guard let descriptors = CTFontManagerCreateFontDescriptorsFromURL(url as CFURL) as? [CTFontDescriptor],
+              let first = descriptors.first
+        else { return nil }
+        return CTFontDescriptorCopyAttribute(first, kCTFontFamilyNameAttribute) as? String
+    }
+
+    /// A SwiftUI font for previewing the custom font, registering the mod
+    /// file with this process if it is not installed on the Mac.
+    func customFontPreview(size: CGFloat) -> Font? {
+        guard let url = customFontURL else { return nil }
+        CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+        guard let family = Self.familyName(of: url) else { return nil }
+        return .custom(family, size: size)
+    }
+}
