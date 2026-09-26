@@ -64,7 +64,7 @@ jobs:
           lipo -archs "$APP/Contents/MacOS/RobloxPlayer" | grep -q "${{ matrix.arch }}"
           # Writing ClientSettings breaks the bundle's resource seal by design;
           # just check it is still signed; the Launch step proves it runs.
-          codesign -dv "$APP" 2>&1 | grep -q "^Authority="
+          codesign -dvv "$APP" 2>&1 | grep -q "^Authority="
           spctl --assess --type execute -v "$APP" || true
           cat "$APP/Contents/MacOS/ClientSettings/ClientAppSettings.json"
           grep -q '"DFIntTaskSchedulerTargetFps": 240' "$APP/Contents/MacOS/ClientSettings/ClientAppSettings.json"
